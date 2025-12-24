@@ -10,40 +10,50 @@ class YouTubeNepal(BaseCollector):
         self.api_key = os.getenv("YOUTUBE_API_KEY")
         self.youtube = build("youtube", "v3", developerKey=self.api_key)
 
-    def search_videos(self, query, max_results=2):
+    from typing import List
+
+    def search_videos(self, query, max_results: int = 1) -> List[str]:
+        """
+        Returns up to max_results video IDs that are:
+        - published after 2024-01-01
+        - have >5 top-level comments (replies not counted)
+        """
         try:
-            seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat() + "Z"
             print(f"api: {self.youtube}")
             print(f"[YT] Searching for: {query}")
-            
+
             request = self.youtube.search().list(
-                q=query,
+                q=f"\"{query}\" -shorts",
                 part="id,snippet",
                 type="video",
-                order="date",
-                publishedAfter=seven_days_ago,
+                order="relevance",
+                # publishedAfter="2024-01-01T00:00:00Z",
                 maxResults=max_results,
-                regionCode="NP"
+                regionCode="NP",
             )
             response = request.execute()
-            vidIds = [item['id']['videoId'] for item in response.get('items', [])]
-            print(f"[YT] Found {len(vidIds)} video IDs: {vidIds}")
-            return vidIds
+
+            vid_ids = [item["id"]["videoId"] for item in response.get("items", [])]
+            print(f"[YT] Found {len(vid_ids)} candidate video IDs: {vid_ids}")
+            return vid_ids
+
         except Exception as e:
             print(f"[YT] SEARCH ERROR: {e}")
             return []
 
-    def fetch_data(self, video_id, limit=20) -> tuple[bool, dict]:
+    def fetch_data(self, video_id, cmt_per_vid: int = 5):
         print(f"[YT] ---> STARTING FETCH FOR VIDEO: {video_id}") # LOG TEST
         try:
             request = self.youtube.commentThreads().list(
                 part="snippet",
                 videoId=video_id,
-                maxResults=limit,
-                textFormat="plainText"
+                maxResults=5,
+                textFormat="plainText",
+                order='relevance', 
             )
             response = request.execute()
-            return (True, response)
+            print(f'Comments for {video_id}: {len(response)}')
+            return response
 
         except HttpError as e:
             # If comments are disabled, YouTube returns a 403 error
@@ -51,7 +61,7 @@ class YouTubeNepal(BaseCollector):
                 print(f"[YT] SKIPPING: Comments are disabled for video {video_id}")
             else:
                 print(f"[YT] API ERROR ({e.resp.status}): {e}")
-            return (False, {})
+            return {}
         except Exception as e:
             print(f"[YT] UNKNOWN ERROR: {e}")
-            return (False, {})
+            return {}

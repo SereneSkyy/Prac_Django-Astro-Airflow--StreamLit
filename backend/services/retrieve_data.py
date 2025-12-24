@@ -6,7 +6,7 @@ from api.retrieve.serializers import CommentsSerializer
 def retrieve_data():
     try:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT * FROM airflow.yt_comments LIMIT 10;")
+            cursor.execute("SELECT * FROM airflow.comments LIMIT 10;")
             cols = [c[0] for c in cursor.description]
             rows = [dict(zip(cols, row)) for row in cursor.fetchall()]
 
