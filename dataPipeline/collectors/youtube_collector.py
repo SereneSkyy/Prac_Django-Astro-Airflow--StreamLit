@@ -33,8 +33,8 @@ class YouTubeNepal(BaseCollector):
             print(f"[YT] Searching for: {query}")
 
             request = self.youtube.search().list(
-                q=query,
-                # q=f"\"{query}\" -shorts",
+                # q=query,
+                q=f"\"{query}\" -shorts",
                 part="id,snippet",
                 type="video",
                 order="relevance",
@@ -56,7 +56,7 @@ class YouTubeNepal(BaseCollector):
             print(f"[YT] SEARCH ERROR: {e}")
             return []
 
-    def fetch_data(self, video_id, cmt_per_vid: int = 0):
+    def fetch_data(self, video_id, cmt_per_vid: int = 1):
         print(f"[YT] ---> STARTING FETCH FOR VIDEO: {video_id}") # LOG TEST
         try:
             request = self.youtube.commentThreads().list(

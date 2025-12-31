@@ -7,6 +7,7 @@ from schemas.etl_schema import (execute_comments_sql, execute_topic_sql, execute
                                 update_topic_sql
                                 )
 from collectors.youtube_collector import YouTubeNepal
+from collectors.cmt_sep_collector import cmt_sep_collector
 from airflow.exceptions import AirflowSkipException
 from services.psql_conn import psql_cursor
 from services.redis_client import get_redis
@@ -28,7 +29,7 @@ def start_genz_dag():
             'dag_id': '',
             'topic': '',
             'max_results': 1,
-            'cmt_per_vid': 0,
+            'cmt_per_vid': 5,
         }
         redis = get_redis()
         ctx = get_current_context()
@@ -45,7 +46,7 @@ def start_genz_dag():
             
         # search videos
         vidIds = collector.search_videos(extract_info['topic'], extract_info['max_results'])
-        print(f'Searching for topic: {extract_info['topic']}')
+        print(f"Searching for topic: {extract_info['topic']}")
 
         if not vidIds:
             print("No videos found.")
@@ -154,46 +155,51 @@ def start_genz_dag():
             ]
 
             cursor.executemany(insert_comments_sql, comment_values)
-
-            # new videos → INSERT
-            new_topic_values = [
-                (
-                    val["id"],
-                    [topic],
-                    [collector],
-                    dag_id,
-                )
-                for val in comments
-                if val["vid_id"] in not_processed_vids
-            ]
-
-            cursor.executemany(insert_topic_sql, new_topic_values)
-
-            # processed videos → UPDATE (add topic)
-            for val in comments:
-                if val["vid_id"] in processed_vids:
-                    cursor.execute(
-                        update_topic_sql,
-                        ([topic], val["id"])
+            try:
+                cmt_vals = {}
+                for val in comment_values: cmt_vals[val[0]] = val[1] # -> dict of key (id): value (comment)
+                cmt_sep_collector(cursor, cmt_vals)
+            except Exception as e:
+                print(f"Exception in cmt_sep_collector:- {e}")
+            finally:
+                # new videos → INSERT
+                new_topic_values = [
+                    (
+                        val["id"],
+                        [topic],
+                        [collector],
+                        dag_id,
                     )
+                    for val in comments
+                    if val["vid_id"] in not_processed_vids
+                ]
 
-            processed_values = [
-                (
-                    val["vid_id"],
-                    val["id"],
-                )
-                for val in comments
-                if (
-                    val["vid_id"] in processed_vids
-                    or val["vid_id"] in not_processed_vids
-                )
-            ]
+                cursor.executemany(insert_topic_sql, new_topic_values)
 
-            cursor.executemany(insert_processed_vidIds_sql, processed_values)
+                # processed videos → UPDATE (add topic)
+                for val in comments:
+                    if val["vid_id"] in processed_vids:
+                        cursor.execute(
+                            update_topic_sql,
+                            ([topic], val["id"])
+                        )
+
+                processed_values = [
+                    (
+                        val["vid_id"],
+                        val["id"],
+                    )
+                    for val in comments
+                    if (
+                        val["vid_id"] in processed_vids
+                        or val["vid_id"] in not_processed_vids
+                    )
+                ]
+
+                cursor.executemany(insert_processed_vidIds_sql, processed_values)
 
         redis.delete(f"processed_vids:{dag_id}")
         redis.delete(f"not_processed:{dag_id}")
-
 
     data = extract_data()
     comments = transform_data(data)

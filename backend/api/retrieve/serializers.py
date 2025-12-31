@@ -5,4 +5,4 @@ class CommentsSerializer(serializers.Serializer):
     comment = serializers.CharField()
     author = serializers.CharField()
     p_timestamp = serializers.DateTimeField()
-    t_timestamp = serializers.DateTimeField()
+    t_timestamp = serializers.DateTimeField()    
