@@ -63,21 +63,21 @@ def start_genz_dag():
             print(f"Data Fetching for: {vidId}")
             # not processed scenario
             redis.sadd(f"not_processed:{extract_info['dag_id']}", vidId)
-            response = collector.fetch_data(vidId, cmt_per_vid = extract_info['cmt_per_vid'])
-            if response:
+            comments = collector.fetch_data(vidId, cmt_per_vid = extract_info['cmt_per_vid'])
+            if comments:
                 all_items.extend([
                     {
                         "vid_id": vidId,
-                        "item": item
+                        "item": item,
                     }
-                    for item in response.get("items", [])
+                    for item in comments
                 ])
                 # collector.mark_as_processed(vidId)
                 print(f"Logged ID {vidId} to processed_log.json")
 
             else:
                 print(f"No data retrieved for {vidId}")
-
+    
         if not all_items:
             reason = "No comments found!"
             context['ti'].xcom_push(key='skip_reason', value=reason)

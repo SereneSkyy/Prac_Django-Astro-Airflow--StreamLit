@@ -3,6 +3,7 @@ from googleapiclient.errors import HttpError # For catching specific API errors
 from datetime import datetime, timedelta
 import os
 from .base_collector import BaseCollector
+from typing import List
 
 
 class YouTubeNepal(BaseCollector):
@@ -11,42 +12,47 @@ class YouTubeNepal(BaseCollector):
         self.api_key = api_key
         self.youtube = build("youtube", "v3", developerKey=self.api_key)
         
-            
-
-    from typing import List
-
     def _handle_quota_error(self, e):
         if e.resp.status in [403, 429] and "quotaExceeded" in str(e):
             print("CRITICAL: Youtube API Quota Limit Exceeded!")
             print("Check Google Cloud Console. ETL will resume once quota resets")
             return True
         return False
-            
 
-    def search_videos(self, query, max_results: int = 1) -> List[str]:
+    def search_videos(self, query, max_results: int = 50) -> List[str]:
         """
         Returns up to max_results video IDs that are:
         - published after 2024-01-01
         """
         try:
-            print(f"api: {self.youtube}")
             print(f"[YT] Searching for: {query}")
 
-            request = self.youtube.search().list(
-                # q=query,
-                q=f"\"{query}\" -shorts",
-                part="id,snippet",
-                type="video",
-                order="relevance",
-                # publishedAfter="2024-01-01T00:00:00Z",
-                maxResults=max_results,
-                regionCode="NP",
-            )
-            response = request.execute()
+            vid_ids = []
+            page_token = None
 
-            vid_ids = [item["id"]["videoId"] for item in response.get("items", [])][:max_results]
-            print(f"[YT] Found {len(vid_ids)} candidate video IDs: {vid_ids}")
-            return vid_ids
+            while True:
+                response = self.youtube.search().list(
+                    # q=query,
+                    q=f"\"{query}\" -shorts",
+                    part="id,snippet",
+                    type="video",
+                    order="relevance",
+                    # publishedAfter="2024-01-01T00:00:00Z",
+                    maxResults=min(50, max_results - len(vid_ids)),
+                    regionCode="NP",
+                    pageToken = page_token,
+                ).execute()
+                vid_ids.extend(
+                    item["id"]["videoId"]
+                    for item in response.get("items", [])
+                )
+                page_token = response['nextPageToken']
+
+                if not page_token or len(vid_ids) >= max_results:
+                    break
+
+            print(f"[YT] Found {len(vid_ids)} video IDs")
+            return vid_ids[:max_results]
         
         except HttpError as e:
             self._handle_quota_error(e) # check for quota here
@@ -56,30 +62,37 @@ class YouTubeNepal(BaseCollector):
             print(f"[YT] SEARCH ERROR: {e}")
             return []
 
-    def fetch_data(self, video_id, cmt_per_vid: int = 1):
+    def fetch_data(self, video_id, cmt_per_vid: int = 500):
         print(f"[YT] ---> STARTING FETCH FOR VIDEO: {video_id}") # LOG TEST
         try:
-            request = self.youtube.commentThreads().list(
-                part="snippet",
-                videoId=video_id,
-                maxResults=cmt_per_vid,
-                textFormat="plainText",
-                order='relevance', 
-            )
-            response = request.execute()
-            
-            print(f'Comments for {video_id}: {len(response)}')
-            return response
+            comments = []
+            page_token = None
+            while True:
+                response = self.youtube.commentThreads().list(
+                    part="snippet",
+                    videoId=video_id,
+                    maxResults=min(100, cmt_per_vid - len(comments)),
+                    textFormat="plainText",
+                    order='relevance', 
+                    pageToken = page_token,
+                ).execute()
+                comments.extend(response.get("items", []))
+
+                page_token = response.get("nextPageToken")
+                if not page_token or len(comments) >= cmt_per_vid:
+                    break
+
+            print(f"[YT] Collected {len(comments)} comments for {video_id}")
+            return comments
 
         except HttpError as e:
             if self._handle_quota_error(e): # Check for quota here
-                return {}
-            
+                return []
             if e.resp.status == 403:
                 print(f"[YT] SKIPPING: Comments are disabled for video {video_id}")
             else:
                 print(f"[YT] API ERROR ({e.resp.status}): {e}")
-            return {}
+            return []
         except Exception as e:
             print(f"[YT] UNKNOWN ERROR: {e}")
-            return {}
+            return []
