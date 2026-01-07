@@ -33,9 +33,20 @@ def _execute_and_serialize(sql: str, params: list, serializer_cls):
         }]
 
 def retrieve_data(topic: str):
+    """
+    Fetches comments for a topic and joins with NLP processed data.
+    """
     sql = """
-        SELECT c.*
+        SELECT 
+            c.id, 
+            c.comment, 
+            c.author, 
+            c.p_timestamp, 
+            c.t_timestamp,
+            pc.language,
+            pc.cleaned_text
         FROM airflow.comments c
+        LEFT JOIN airflow.processed_comments pc ON c.id = pc.comment_id
         WHERE c.id IN (
             SELECT tc.id
             FROM airflow.topic_collector tc
@@ -45,13 +56,20 @@ def retrieve_data(topic: str):
     return _execute_and_serialize(sql, [topic], CommentsSerializer)
 
 def cmt_sep_data(lang: str):
+    """
+    Fetches all comments filtered by a specific language (e.g., 'en').
+    """
     sql = """
-        SELECT c.*
+        SELECT 
+            c.id, 
+            c.comment, 
+            c.author, 
+            c.p_timestamp, 
+            c.t_timestamp,
+            pc.language,
+            pc.cleaned_text
         FROM airflow.comments c
-        WHERE c.id IN (
-            SELECT cl.comment_id
-            FROM airflow.comments_lang cl
-            WHERE cl.language = %s
-        );
+        INNER JOIN airflow.processed_comments pc ON c.id = pc.comment_id
+        WHERE pc.language = %s;
     """
     return _execute_and_serialize(sql, [lang], CommentsSerializer)
