@@ -5,4 +5,4 @@ __pycache__
 migrations
 logs
 *.sql
-/previous_datapipeline
+/previous_datapipeline/
