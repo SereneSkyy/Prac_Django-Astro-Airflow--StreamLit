@@ -16,7 +16,7 @@ class NLPEngine:
     @staticmethod
     def clean_comments(text_list):
         lem = WordNetLemmatizer()
-        stops = set(stopwords.words('english')).union({'phone', 'video', 'get', 'like', 'would'})
+        stops = set(stopwords.words('english'))
         processed = []
         for text in text_list:
             clean = re.sub(r'http\S+|www\S+|<.*?>|[^a-zA-Z\s]', '', str(text).lower())
