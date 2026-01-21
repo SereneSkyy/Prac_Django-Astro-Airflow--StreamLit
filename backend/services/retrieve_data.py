@@ -1,5 +1,5 @@
+import json
 from django.db import connection
-from django.db.utils import ProgrammingError
 from rest_framework.exceptions import ValidationError
 from api.retrieve.serializers import CommentsSerializer
 
@@ -10,27 +10,20 @@ def _execute_and_serialize(sql: str, params: list, serializer_cls):
             cols = [col[0] for col in cursor.description]
             rows = [dict(zip(cols, row)) for row in cursor.fetchall()]
 
+        if not rows:
+            return []
+
         serializer = serializer_cls(data=rows, many=True)
-        serializer.is_valid(raise_exception=True)
+        # Check validation and print to terminal if it fails
+        if not serializer.is_valid():
+            print(f"!!! SERIALIZER ERRORS: {serializer.errors}")
+            return [{"error": "validation_error", "detail": str(serializer.errors)}]
+            
         return serializer.data
 
-    except ProgrammingError as e:
-        return [{
-            "error": "database_error",
-            "detail": str(e),
-        }]
-
-    except ValidationError as e:
-        return [{
-            "error": "validation_error",
-            "detail": e.detail,
-        }]
-
     except Exception as e:
-        return [{
-            "error": "unknown_error",
-            "detail": str(e),
-        }]
+        print(f"!!! SYSTEM ERROR: {str(e)}")
+        return [{"error": "system_error", "detail": str(e)}]
 
 def retrieve_data(topic: str):
     """
@@ -66,8 +59,7 @@ def cmt_sep_data(lang: str):
             c.author, 
             c.p_timestamp, 
             c.t_timestamp,
-            pc.language,
-            pc.cleaned_text
+            pc.language
         FROM airflow.comments c
         INNER JOIN airflow.processed_comments pc ON c.id = pc.comment_id
         WHERE pc.language = %s;

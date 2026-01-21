@@ -4,7 +4,7 @@ from pendulum import datetime
 from airflow.operators.python import get_current_context
 from schemas.etl_schema import (execute_comments_sql, execute_topic_sql, execute_processed_vidIds_sql, 
                                 insert_comments_sql, insert_topic_sql, insert_processed_vidIds_sql,
-                                update_topic_sql
+                                update_topic_sql,execute_processed_comments_sql,execute_taxonomy_sql
                                 )
 from collectors.youtube_collector import YouTubeNepal
 from collectors.cmt_sep_collector import cmt_sep_collector
@@ -29,7 +29,7 @@ def start_genz_dag():
             'dag_id': '',
             'topic': '',
             'max_results': 1,
-            'cmt_per_vid': 5,
+            'cmt_per_vid': 15,
         }
         redis = get_redis()
         ctx = get_current_context()
@@ -141,7 +141,8 @@ def start_genz_dag():
             # ensure tables exist
             cursor.execute(execute_comments_sql)
             cursor.execute(execute_topic_sql)
-
+            cursor.execute(execute_processed_comments_sql)
+            cursor.execute(execute_taxonomy_sql)
             # insert comments
             comment_values = [
                 (
