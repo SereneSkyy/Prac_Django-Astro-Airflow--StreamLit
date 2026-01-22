@@ -1,7 +1,8 @@
 services:
   db:
     # Uses the standard Debian-based image for Postgres 14
-    image: postgres:14
+    build: .
+    # image: postgres:14
     restart: always
     environment:
       POSTGRES_USER: admin

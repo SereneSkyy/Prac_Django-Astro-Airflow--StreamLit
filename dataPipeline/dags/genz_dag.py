@@ -2,6 +2,7 @@ from airflow.decorators import dag, task
 import pendulum
 from pendulum import datetime
 from airflow.operators.python import get_current_context
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from schemas.etl_schema import (execute_comments_sql, execute_topic_sql, execute_processed_vidIds_sql, 
                                 insert_comments_sql, insert_topic_sql, insert_processed_vidIds_sql,
                                 update_topic_sql,execute_processed_comments_sql,execute_taxonomy_sql
@@ -12,7 +13,9 @@ from airflow.exceptions import AirflowSkipException
 from services.psql_conn import psql_cursor
 from services.redis_client import get_redis
 from services.api_services import api_provider
+from dataPipeline.services.run_embed import create_embeddings
 
+# --------------------- Comments Fetching Dag ----------------------------------
 @dag(
     dag_id="genz_dag",
     start_date=datetime(2023, 10, 1),
@@ -55,7 +58,7 @@ def start_genz_dag():
         all_items = []
         for vidId in vidIds:
             if collector.is_already_processed(vidId):
-                redis.sadd(f"processed_vids:{extract_info['dag_id']}", vidId)
+                redis.sadd(f"processed:{extract_info['dag_id']}", vidId)
                 print(f"Skipping {vidId}: Already processed")
                 continue
 
@@ -199,12 +202,47 @@ def start_genz_dag():
 
                 cursor.executemany(insert_processed_vidIds_sql, processed_values)
 
-        redis.delete(f"processed_vids:{dag_id}")
+        redis.delete(f"processed:{dag_id}")
         redis.delete(f"not_processed:{dag_id}")
+        return {"topic": topic, "source_dag_id": dag_id, "vid_ids": not_processed_vids}
 
     data = extract_data()
     comments = transform_data(data)
-    load_data(comments)
+    payload = load_data(comments)
+
+    # load the vids not processed to embed_dag
+    trigger = TriggerDagRunOperator(
+            task_id="trigger_embed_dag",
+            trigger_dag_id="embed_dag",
+            wait_for_completion=False,
+            conf=payload,
+        )
+    payload >> trigger
+
+# --------------------- Comments Fetching Dag ----------------------------------
+@dag(
+    dag_id="embed_dag",
+    start_date=datetime(2025, 1, 1),
+    schedule=None,
+    catchup=False,
+)
+def embed_dag():
+    @task
+    def bert_embed():
+        ctx = get_current_context()
+        conf = ctx.get("dag_run").conf or {}
+
+        vid_ids = conf.get("vid_ids", [])
+        topic = conf.get("topic", "genz")
+
+        if not vid_ids:
+            return
+        
+        with psql_cursor() as cursor:
+            create_embeddings(vid_ids, cursor)
+    
+    bert_embed()
 
 # call the dag
 start_genz_dag()
+embed_dag()

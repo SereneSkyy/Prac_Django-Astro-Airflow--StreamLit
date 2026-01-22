@@ -1,12 +1,11 @@
 import re
 import nltk
-import psycopg2
-from psycopg2.extras import execute_values
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
 from gensim import corpora
 from gensim.models import TfidfModel, LdaModel, LsiModel, Nmf
 from gensim.models.coherencemodel import CoherenceModel
+from schemas.etl_schema import execute_processed_comments_sql, insert_cleaned_comments
 
 # Initialization
 nltk.download('stopwords', quiet=True)
@@ -14,15 +13,30 @@ nltk.download('wordnet', quiet=True)
 
 class NLPEngine:
     @staticmethod
-    def clean_comments(text_list):
+    def save_processed_comments(proc_texts, ids, cursor):
+        try:
+            cursor.execute(execute_processed_comments_sql)
+
+            # turn token lists into a single string per comment (easy to store/search)
+            processed_strings = [" ".join(tokens) for tokens in proc_texts]
+
+            values = [(cid, ptxt) for cid, ptxt in zip(ids, processed_strings)]
+
+            cursor.executemany(insert_cleaned_comments, values)
+
+        except Exception as e:
+            print(f"[DB Error] {e}")
+
+    @staticmethod
+    def clean_comments(comment_texts, ids, cursor):
         lem = WordNetLemmatizer()
         stops = set(stopwords.words('english'))
         processed = []
-        for text in text_list:
+        for text in comment_texts:
             clean = re.sub(r'http\S+|www\S+|<.*?>|[^a-zA-Z\s]', '', str(text).lower())
             tokens = [lem.lemmatize(w) for w in clean.split() if w not in stops and len(w) > 2]
             processed.append(tokens)
-        return processed
+        return NLPEngine.save_processed_comments(processed, ids, cursor)
 
     @staticmethod
     def compare_models(tfidf_corpus, dictionary, tokens, n_topics=3):
@@ -70,25 +84,5 @@ class NLPEngine:
             tfidf_model = TfidfModel(bow)
             tfidf_corpus = tfidf_model[bow]
             winner, scores = NLPEngine.compare_models(tfidf_corpus, dictionary, tokens, n_topics=3)
-
-        # save only cleaned text to DB
-        try:
-            conn = psycopg2.connect(host="127.0.0.1", database="data_pipeline", user="admin", password="admin")
-            cur = conn.cursor()
-            
-            data_to_update = list(zip(cleaned_strings, ids))
-            
-            # Optimized SQL No vector_tfidf, just the cleaned text
-            query = """
-                UPDATE airflow.processed_comments 
-                SET cleaned_text = val.txt, updated_at = CURRENT_TIMESTAMP
-                FROM (VALUES %s) AS val (txt, cid) 
-                WHERE comment_id = val.cid;
-            """
-            execute_values(cur, query, data_to_update)
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            print(f"[DB Error] {e}")
             
         return winner, scores

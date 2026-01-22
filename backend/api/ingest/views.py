@@ -3,7 +3,6 @@ from services.airflow import trigger_dag
 from services.exceptions import AirflowError
 from django.http import JsonResponse
 
-
 class IngestView(APIView):
     def post(self, request, topic: str = 'genz', dag_id : str = 'genz_dag'):
         try:

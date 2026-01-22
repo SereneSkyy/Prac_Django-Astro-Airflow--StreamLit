@@ -33,14 +33,12 @@ CREATE TABLE IF NOT EXISTS processed_vidIds (
         ON DELETE CASCADE
 );
 """
-# Add the columns for dominant_topic and topic_confidence
+# add the columns for dominant_topic and topic_confidence
 execute_processed_comments_sql = """
 CREATE TABLE IF NOT EXISTS airflow.processed_comments (
     comment_id TEXT PRIMARY KEY,
     language   VARCHAR(10),
     cleaned_text TEXT,
-    dominant_topic TEXT,           -- Added for Topic Modeling
-    topic_confidence FLOAT,        -- Added for Topic Modeling
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_comment 
         FOREIGN KEY(comment_id) 
@@ -48,7 +46,7 @@ CREATE TABLE IF NOT EXISTS airflow.processed_comments (
         ON DELETE CASCADE
 );
 """
-# Add the Taxonomy table SQL
+# add the Taxonomy table SQL
 execute_taxonomy_sql = """
 CREATE TABLE IF NOT EXISTS airflow.topic_taxonomy (
     topic_id TEXT,
@@ -56,6 +54,15 @@ CREATE TABLE IF NOT EXISTS airflow.topic_taxonomy (
     weight FLOAT,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (topic_id, word)
+);
+"""
+
+execute_embed_comments_sql = """
+CREATE TABLE IF NOT EXISTS embed_comments (
+  comment_id TEXT PRIMARY KEY
+    REFERENCES processed_comments(id) ON DELETE CASCADE,
+  embedding vector(768),                 
+  embedded_at TIMESTAMPTZ DEFAULT now()
 );
 """
 
@@ -83,4 +90,19 @@ SET topic = ARRAY(
     SELECT DISTINCT unnest(topic || %s)
 )
 WHERE id = %s;
+"""
+
+insert_cleaned_comments = """
+INSERT INTO processed_comments(comment_id, cleaned_text)
+VALUES (%s, %s)
+ON CONFLICT (comment_id) DO UPDATE
+SET cleaned_text = EXCLUDED.cleaned_text;
+"""
+
+insert_embed_comments = """
+INSERT INTO embed_comments (comment_id, embedding)
+VALUES (%s, %s)
+ON CONFLICT (comment_id) DO UPDATE
+SET embedding = EXCLUDED.embedding,
+    embedded_at = now()
 """
