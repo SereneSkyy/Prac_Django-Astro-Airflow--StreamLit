@@ -18,15 +18,17 @@ def detect_language(text):
         return 'rne'
 
 def cmt_sep_collector(cursor, cmt: dict):
+    # cmt is a dict of {comment_id: comment_text}
     rows = [(cid, detect_language(txt)) for cid, txt in cmt.items()]
 
+    # Upsert logic: Insert language, or update it if the row exists
     execute_values(
         cursor,
         """
-        INSERT INTO comments_lang (comment_id, language)
+        INSERT INTO airflow.processed_comments (comment_id, language)
         VALUES %s
-        ON CONFLICT (comment_id, language) DO NOTHING
+        ON CONFLICT (comment_id) DO UPDATE SET language = EXCLUDED.language
         """,
         rows,
-        page_size=1000 # -> can insert up to 1000 tuples (rows) at once
+        page_size=1000
     )

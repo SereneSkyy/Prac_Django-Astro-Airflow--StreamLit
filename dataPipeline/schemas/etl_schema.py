@@ -33,6 +33,31 @@ CREATE TABLE IF NOT EXISTS processed_vidIds (
         ON DELETE CASCADE
 );
 """
+# Add the columns for dominant_topic and topic_confidence
+execute_processed_comments_sql = """
+CREATE TABLE IF NOT EXISTS airflow.processed_comments (
+    comment_id TEXT PRIMARY KEY,
+    language   VARCHAR(10),
+    cleaned_text TEXT,
+    dominant_topic TEXT,           -- Added for Topic Modeling
+    topic_confidence FLOAT,        -- Added for Topic Modeling
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_comment 
+        FOREIGN KEY(comment_id) 
+        REFERENCES airflow.comments(id) 
+        ON DELETE CASCADE
+);
+"""
+# Add the Taxonomy table SQL
+execute_taxonomy_sql = """
+CREATE TABLE IF NOT EXISTS airflow.topic_taxonomy (
+    topic_id TEXT,
+    word TEXT,
+    weight FLOAT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (topic_id, word)
+);
+"""
 
 insert_comments_sql = """
 INSERT INTO comments (id, comment, author, p_timestamp, t_timestamp)

@@ -5,3 +5,5 @@ discord.py
 python-decouple
 apache-airflow
 langdetect
+nltk
+scikit-learn
