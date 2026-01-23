@@ -5,7 +5,7 @@ from airflow.operators.python import get_current_context
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from schemas.etl_schema import (execute_comments_sql, execute_topic_sql, execute_processed_vidIds_sql, 
                                 insert_comments_sql, insert_topic_sql, insert_processed_vidIds_sql,
-                                update_topic_sql,execute_processed_comments_sql,execute_taxonomy_sql
+                                update_topic_sql,execute_cleaned_comments_sql
                                 )
 from collectors.youtube_collector import YouTubeNepal
 from collectors.cmt_sep_collector import cmt_sep_collector
@@ -13,7 +13,7 @@ from airflow.exceptions import AirflowSkipException
 from services.psql_conn import psql_cursor
 from services.redis_client import get_redis
 from services.api_services import api_provider
-from dataPipeline.services.run_embed import create_embeddings
+from services.run_embed import create_embeddings
 
 # --------------------- Comments Fetching Dag ----------------------------------
 @dag(
@@ -85,7 +85,7 @@ def start_genz_dag():
             reason = "No comments found!"
             context['ti'].xcom_push(key='skip_reason', value=reason)
             raise AirflowSkipException(reason)
-            
+
         return {'items': all_items}
 
     @task
@@ -127,6 +127,7 @@ def start_genz_dag():
     
     @task
     def load_data(comments):
+
         ctx = get_current_context()
         conf = ctx.get("dag_run").conf or {}
 
@@ -144,8 +145,8 @@ def start_genz_dag():
             # ensure tables exist
             cursor.execute(execute_comments_sql)
             cursor.execute(execute_topic_sql)
-            cursor.execute(execute_processed_comments_sql)
-            cursor.execute(execute_taxonomy_sql)
+            cursor.execute(execute_cleaned_comments_sql)
+            cursor.execute(execute_processed_vidIds_sql)
             # insert comments
             comment_values = [
                 (
@@ -199,11 +200,15 @@ def start_genz_dag():
                         or val["vid_id"] in not_processed_vids
                     )
                 ]
-
                 cursor.executemany(insert_processed_vidIds_sql, processed_values)
 
         redis.delete(f"processed:{dag_id}")
         redis.delete(f"not_processed:{dag_id}")
+        # serialize to json to pass as conf
+        not_processed_vids = [
+            v.decode("utf-8") if isinstance(v, (bytes, bytearray)) else v
+            for v in not_processed_vids
+        ]
         return {"topic": topic, "source_dag_id": dag_id, "vid_ids": not_processed_vids}
 
     data = extract_data()
@@ -234,6 +239,9 @@ def embed_dag():
 
         vid_ids = conf.get("vid_ids", [])
         topic = conf.get("topic", "genz")
+
+        print("dag_run.conf:", conf)
+        print("vid_ids:", conf.get("vid_ids"))
 
         if not vid_ids:
             return

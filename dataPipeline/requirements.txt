@@ -7,3 +7,9 @@ apache-airflow
 langdetect
 nltk
 scikit-learn
+pgvector
+psycopg2-binary
+gensim
+torch
+transformers
+huggingface_hub

@@ -1,5 +1,5 @@
 execute_comments_sql = """
-CREATE TABLE IF NOT EXISTS comments (
+CREATE TABLE IF NOT EXISTS airflow.comments (
     id TEXT PRIMARY KEY,
     comment TEXT,
     author TEXT,
@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS comments (
 """
 
 execute_topic_sql = """
-CREATE TABLE IF NOT EXISTS topic_collector (
+CREATE TABLE IF NOT EXISTS airflow.topic_collector (
     id TEXT PRIMARY KEY,
     topic TEXT[] NOT NULL,
     collector TEXT[] NOT NULL,
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS topic_collector (
 """
 
 execute_processed_vidIds_sql = """
-CREATE TABLE IF NOT EXISTS processed_vidIds (
+CREATE TABLE IF NOT EXISTS airflow.processed_vidIds (
     vid_id TEXT NOT NULL,
     cmt_id TEXT NOT NULL,
     processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -33,11 +33,22 @@ CREATE TABLE IF NOT EXISTS processed_vidIds (
         ON DELETE CASCADE
 );
 """
-# add the columns for dominant_topic and topic_confidence
-execute_processed_comments_sql = """
-CREATE TABLE IF NOT EXISTS airflow.processed_comments (
+
+execute_comment_lang_sql = """
+CREATE TABLE IF NOT EXISTS airflow.comment_lang(
     comment_id TEXT PRIMARY KEY,
-    language   VARCHAR(10),
+    language TEXT NOT NULL,
+    CONSTRAINT fk_comments
+        FOREIGN KEY (comment_id)
+        REFERENCES comments(id)
+        ON DELETE CASCADE
+);
+"""
+
+# add the columns for dominant_topic and topic_confidence
+execute_cleaned_comments_sql = """
+CREATE TABLE IF NOT EXISTS airflow.cleaned_comments (
+    comment_id TEXT PRIMARY KEY,
     cleaned_text TEXT,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_comment 
@@ -46,21 +57,11 @@ CREATE TABLE IF NOT EXISTS airflow.processed_comments (
         ON DELETE CASCADE
 );
 """
-# add the Taxonomy table SQL
-execute_taxonomy_sql = """
-CREATE TABLE IF NOT EXISTS airflow.topic_taxonomy (
-    topic_id TEXT,
-    word TEXT,
-    weight FLOAT,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (topic_id, word)
-);
-"""
 
 execute_embed_comments_sql = """
-CREATE TABLE IF NOT EXISTS embed_comments (
+CREATE TABLE IF NOT EXISTS airflow.embed_comments (
   comment_id TEXT PRIMARY KEY
-    REFERENCES processed_comments(id) ON DELETE CASCADE,
+    REFERENCES cleaned_comments(comment_id) ON DELETE CASCADE,
   embedding vector(768),                 
   embedded_at TIMESTAMPTZ DEFAULT now()
 );
@@ -93,7 +94,7 @@ WHERE id = %s;
 """
 
 insert_cleaned_comments = """
-INSERT INTO processed_comments(comment_id, cleaned_text)
+INSERT INTO cleaned_comments(comment_id, cleaned_text)
 VALUES (%s, %s)
 ON CONFLICT (comment_id) DO UPDATE
 SET cleaned_text = EXCLUDED.cleaned_text;
@@ -105,4 +106,10 @@ VALUES (%s, %s)
 ON CONFLICT (comment_id) DO UPDATE
 SET embedding = EXCLUDED.embedding,
     embedded_at = now()
+"""
+
+insert_comment_lang = """
+    INSERT INTO airflow.comment_lang (comment_id, language)
+    VALUES %s
+    ON CONFLICT (comment_id) DO UPDATE SET language = EXCLUDED.language
 """

@@ -8,10 +8,11 @@ POSTGRES_CONN_ID = "postgres_default"
 def psql_cursor():
     conn = None
     cursor = None
-    register_vector(conn)
+    # to send vec vals, conn needs to be registered
     try:
         pg_hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
         conn = pg_hook.get_conn()
+        register_vector(conn)
         cursor = conn.cursor()
         yield cursor
         conn.commit()

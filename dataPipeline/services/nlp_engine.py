@@ -5,7 +5,7 @@ from nltk.corpus import stopwords
 from gensim import corpora
 from gensim.models import TfidfModel, LdaModel, LsiModel, Nmf
 from gensim.models.coherencemodel import CoherenceModel
-from schemas.etl_schema import execute_processed_comments_sql, insert_cleaned_comments
+from schemas.etl_schema import execute_cleaned_comments_sql, insert_cleaned_comments
 
 # Initialization
 nltk.download('stopwords', quiet=True)
@@ -15,7 +15,7 @@ class NLPEngine:
     @staticmethod
     def save_processed_comments(proc_texts, ids, cursor):
         try:
-            cursor.execute(execute_processed_comments_sql)
+            cursor.execute(execute_cleaned_comments_sql)
 
             # turn token lists into a single string per comment (easy to store/search)
             processed_strings = [" ".join(tokens) for tokens in proc_texts]
@@ -23,9 +23,11 @@ class NLPEngine:
             values = [(cid, ptxt) for cid, ptxt in zip(ids, processed_strings)]
 
             cursor.executemany(insert_cleaned_comments, values)
+            return True
 
         except Exception as e:
             print(f"[DB Error] {e}")
+            raise
 
     @staticmethod
     def clean_comments(comment_texts, ids, cursor):
@@ -36,7 +38,10 @@ class NLPEngine:
             clean = re.sub(r'http\S+|www\S+|<.*?>|[^a-zA-Z\s]', '', str(text).lower())
             tokens = [lem.lemmatize(w) for w in clean.split() if w not in stops and len(w) > 2]
             processed.append(tokens)
-        return NLPEngine.save_processed_comments(processed, ids, cursor)
+        if NLPEngine.save_processed_comments(processed, ids, cursor):
+            return True
+        
+        return False
 
     @staticmethod
     def compare_models(tfidf_corpus, dictionary, tokens, n_topics=3):
