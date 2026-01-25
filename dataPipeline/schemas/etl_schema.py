@@ -67,6 +67,24 @@ CREATE TABLE IF NOT EXISTS airflow.embed_comments (
 );
 """
 
+execute_words_vec_sql = """
+CREATE TABLE IF NOT EXISTS airflow.words_vec (
+  topic     TEXT NOT NULL,
+  word      TEXT NOT NULL,
+  word_vec  vector(768) NOT NULL,  
+  PRIMARY KEY (topic, word)
+);
+"""
+
+execute_words_occur_sql = """
+CREATE TABLE IF NOT EXISTS airflow.words_occur (
+  topic TEXT NOT NULL,
+  word TEXT NOT NULL,
+  word_cmt_ids TEXT[] NOT NULL,
+  PRIMARY KEY (topic, word)
+);
+"""
+
 insert_comments_sql = """
 INSERT INTO comments (id, comment, author, p_timestamp, t_timestamp)
 VALUES (%s, %s, %s, %s, %s)
@@ -112,4 +130,18 @@ insert_comment_lang = """
     INSERT INTO airflow.comment_lang (comment_id, language)
     VALUES %s
     ON CONFLICT (comment_id) DO UPDATE SET language = EXCLUDED.language
+"""
+
+insert_words_occur = """
+INSERT INTO airflow.words_occur (topic, word, word_cmt_ids)
+VALUES (%s, %s, %s)
+ON CONFLICT (topic, word) DO UPDATE
+SET word_cmt_ids = EXCLUDED.word_cmt_ids;
+"""
+
+insert_words_vec = """
+INSERT INTO airflow.words_vec (topic, word, word_vec)
+VALUES (%s, %s, %s)
+ON CONFLICT (topic, word)
+DO UPDATE SET word_vec = EXCLUDED.word_vec;
 """

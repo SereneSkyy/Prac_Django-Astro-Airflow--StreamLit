@@ -1,12 +1,11 @@
 import json
 from django.db import connection
-from rest_framework.exceptions import ValidationError
 from api.retrieve.serializers import CommentsSerializer
 
-def _execute_and_serialize(sql: str, params: list, serializer_cls):
+def _execute_and_serialize(sql: str, parms: list, serializer_cls):
     try:
         with connection.cursor() as cursor:
-            cursor.execute(sql, params)
+            cursor.execute(sql, parms)
             cols = [col[0] for col in cursor.description]
             rows = [dict(zip(cols, row)) for row in cursor.fetchall()]
 
@@ -30,19 +29,12 @@ def retrieve_data(topic: str):
     Fetches comments for the topic
     """
     sql = """
-        SELECT 
-            c.id, 
-            c.comment, 
-            c.author, 
-            c.p_timestamp, 
-            c.t_timestamp
+        SELECT DISTINCT c.id, c.comment, c.author, c.p_timestamp, c.t_timestamp
         FROM airflow.comments c
-        WHERE c.id IN (
-            SELECT tc.id
-            FROM airflow.topic_collector tc
-            WHERE %s = ANY(tc.topic)
-        );
+        JOIN airflow.topic_collector tc ON tc.id = c.id
+        WHERE %s = ANY(tc.topic);
     """
+
     return _execute_and_serialize(sql, [topic], CommentsSerializer)
 
 def cmt_sep_data(lang: str):

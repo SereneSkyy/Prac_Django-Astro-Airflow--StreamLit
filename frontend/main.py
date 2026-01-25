@@ -56,9 +56,12 @@ if trigger_btn and topic:
             st.toast(f":green[DAG finished with status: {status}]", duration=2)
             
             result = preview_data(topic)
-            df = pd.DataFrame(result)
-            st.dataframe(df, use_container_width=True)
-            
+            if result:
+                df = pd.DataFrame(result)
+                st.dataframe(df, use_container_width=True)
+            else:
+                st.write("API ERROR, PLS TRY AGAIN LATER!")
+                        
     except requests.RequestException as e:
         st.error(f"Request error: {e}")
 

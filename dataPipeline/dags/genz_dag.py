@@ -204,7 +204,7 @@ def start_genz_dag():
 
         redis.delete(f"processed:{dag_id}")
         redis.delete(f"not_processed:{dag_id}")
-        # serialize to json to pass as conf
+        # serialize to json 
         not_processed_vids = [
             v.decode("utf-8") if isinstance(v, (bytes, bytearray)) else v
             for v in not_processed_vids
@@ -238,6 +238,7 @@ def embed_dag():
         conf = ctx.get("dag_run").conf or {}
 
         vid_ids = conf.get("vid_ids", [])
+
         topic = conf.get("topic", "genz")
 
         print("dag_run.conf:", conf)
@@ -247,7 +248,7 @@ def embed_dag():
             return
         
         with psql_cursor() as cursor:
-            create_embeddings(vid_ids, cursor)
+            create_embeddings(vid_ids, cursor, topic)
     
     bert_embed()
 

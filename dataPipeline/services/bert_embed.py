@@ -149,14 +149,14 @@ class TaxonomyAndTreeBuilder:
         occur = {}
         for word in self.target_words:
             temp_occur = []
-            for i, cmt in enumerate(self.pro_cmts):
+            for i, (ids, cmt) in enumerate(self.pro_cmts.items()):
                 if word in cmt:
                     # find pos of word to get the specific BERT vector
                     idx = cmt.index(word)
                     # store word and its associated comment idx
                     if word in occur.keys():
-                        occur[word].append(i)
-                    else: occur[word] = [i]
+                        occur[word].append(ids)
+                    else: occur[word] = [ids]
                     # BERT adds a [CLS] token at index 0, so words at idx + 1
                     temp_occur.append(words_vec[i, idx+1, :].detach().numpy())
             if not temp_occur:
@@ -171,5 +171,7 @@ class TaxonomyAndTreeBuilder:
             word_vectors[word] = mean_vec
         
         tree, roots = self._create_tree(word_metadata, word_vectors)
-        self._draw_tree(tree, roots)
+        # self._draw_tree(tree, roots)
         self._save_to_json(tree, roots) 
+
+        return cmts_vec, occur, word_vectors
