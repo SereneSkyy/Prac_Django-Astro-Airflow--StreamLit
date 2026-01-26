@@ -59,7 +59,7 @@ def create_embeddings(vid_ids, cursor, topic):
 
         # ---------- words_occur normalized (topic, word, word_cmt_id) ----------
         words_occur_rows = [
-            (topic, word, cmt_id)
+            (topic, word, [cmt_id])
             for word, cmt_ids in words_occur.items()
             for cmt_id in cmt_ids
         ]
