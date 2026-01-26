@@ -2,7 +2,7 @@ import json
 from django.db import connection
 from api.retrieve.serializers import CommentsSerializer
 
-def _execute_and_serialize(sql: str, parms: list, serializer_cls):
+def _execute_and_serialize(sql: str, parms: list, serializer_cls, serialize_mode):
     try:
         with connection.cursor() as cursor:
             cursor.execute(sql, parms)
@@ -12,7 +12,7 @@ def _execute_and_serialize(sql: str, parms: list, serializer_cls):
         if not rows:
             return []
 
-        serializer = serializer_cls(data=rows, many=True)
+        serializer = serializer_cls(data=rows, many=True, mode=serialize_mode)
         # Check validation and print to terminal if it fails
         if not serializer.is_valid():
             print(f"!!! SERIALIZER ERRORS: {serializer.errors}")
@@ -35,7 +35,7 @@ def retrieve_data(topic: str):
         WHERE %s = ANY(tc.topic);
     """
 
-    return _execute_and_serialize(sql, [topic], CommentsSerializer)
+    return _execute_and_serialize(sql, [topic], CommentsSerializer, 'preview')
 
 def cmt_sep_data(lang: str):
     """
@@ -53,4 +53,4 @@ def cmt_sep_data(lang: str):
         INNER JOIN airflow.comment_lang cl ON c.id = cl.comment_id
         WHERE cl.language = %s;
     """
-    return _execute_and_serialize(sql, [lang], CommentsSerializer)
+    return _execute_and_serialize(sql, [lang], CommentsSerializer, 'sep')

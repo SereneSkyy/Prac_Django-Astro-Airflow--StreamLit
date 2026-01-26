@@ -3,7 +3,7 @@ import os
 import streamlit as st
 import requests
 import pandas as pd
-from services.check_dag_status import check_dag_status, get_skip_reason
+from services.check_dag_status import get_tasks, check_dag_status, get_skip_reason
 from services.retrieve_data import preview_data
 
 DJANGO_INGEST_API = "http://127.0.0.1:8000/api/ingest"
@@ -37,24 +37,32 @@ if trigger_btn and topic:
         status = data["state"]
 
         # Poll DAG status
-        while status in ("queued", "running"):
-            status = check_dag_status(dag_id, dag_run_id)
+        # gets list of tasks for the curr dag id
+        queue = get_tasks(dag_id, dag_run_id)
+        queue.reverse()
+        len_q = len(queue)
+        while queue:            
+            status = check_dag_status(queue[len_q-1], dag_id, dag_run_id)
 
-        # Final state handling
-        if status == "failed":
-            st.error("DAG run FAILED!")
+            # final status handling
+            if status == "success":
+                queue.pop()
+                len_q -= 1
 
-        elif status == "skipped":
-            skip_reason = get_skip_reason(
-                dag_id,
-                dag_run_id,
-                task_id="extract_data"
-            )
-            st.error(skip_reason)
+            elif status == "failed":
+                st.error("DAG run FAILED!")
 
-        else:
+            elif status == "skipped":
+                skip_reason = get_skip_reason(
+                    dag_id,
+                    dag_run_id,
+                    task_id="extract_data"
+                )
+                st.error(skip_reason)
+
+        if not queue:
             st.toast(f":green[DAG finished with status: {status}]", duration=2)
-            
+
             result = preview_data(topic)
             if result:
                 df = pd.DataFrame(result)
