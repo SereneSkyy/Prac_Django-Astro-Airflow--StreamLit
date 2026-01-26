@@ -41,7 +41,6 @@ def create_embeddings(vid_ids, cursor, topic):
         taxTree = TaxonomyAndTreeBuilder(threshold=0.45, pro_cmts=proc_cmts, target_words=target_words) 
 
         comments_vec, words_occur, word_vectors = taxTree.build_tree()
-        comments_vec, words_occur, word_vectors = taxTree.build_tree()
 
         # ---------- embed_comments ----------
         comment_embeddings = comments_vec.tolist()

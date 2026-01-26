@@ -1,0 +1,51 @@
+{
+    "tree": {
+        "protest": [
+            "nepal",
+            "government",
+            "corruption"
+        ],
+        "youth": [
+            "genz"
+        ],
+        "nepal": [],
+        "government": [],
+        "corruption": [],
+        "genz": [
+            "kpoli",
+            "frustration"
+        ],
+        "kpoli": [
+            "balenshah",
+            "singhadurbar",
+            "nepobaby"
+        ],
+        "balenshah": [],
+        "singhadurbar": [
+            "gaganthapa"
+        ],
+        "gaganthapa": [
+            "baneshwor"
+        ],
+        "frustration": [
+            "anti-corruption",
+            "accountability",
+            "clash"
+        ],
+        "anti-corruption": [
+            "curfew"
+        ],
+        "accountability": [
+            "political"
+        ],
+        "baneshwor": [],
+        "political": [],
+        "curfew": [],
+        "clash": [],
+        "nepobaby": []
+    },
+    "roots": [
+        "protest",
+        "youth"
+    ]
+}
