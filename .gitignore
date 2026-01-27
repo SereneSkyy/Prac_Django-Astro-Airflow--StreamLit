@@ -6,3 +6,4 @@ migrations
 logs
 *.sql
 /previous_datapipeline/
+Dockerfile

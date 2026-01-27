@@ -1,13 +1,21 @@
 import json
 import torch
 import numpy as np
+import os  
 from transformers import BertTokenizer, BertModel
 from sklearn.metrics.pairwise import cosine_similarity
 
 class TaxonomyAndTreeBuilder:
     def __init__(self, threshold, pro_cmts, target_words):
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        self.model = BertModel.from_pretrained('bert-base-uncased')
+        # --- OFFLINE FIX START ---
+        # Look for the baked-in folder from the Dockerfile
+        model_path = "/bert_model" if os.path.exists("/bert_model") else 'bert-base-uncased'
+        is_offline = os.path.exists("/bert_model")
+
+        self.tokenizer = BertTokenizer.from_pretrained(model_path, local_files_only=is_offline)
+        self.model = BertModel.from_pretrained(model_path, local_files_only=is_offline)
+        # --- OFFLINE FIX END ---
+        
         self.pro_cmts = pro_cmts
         self.target_words = target_words
         self.threshold = threshold
@@ -31,7 +39,8 @@ class TaxonomyAndTreeBuilder:
         return abs_score, mean_word_vec
 
     def _tokenizer(self):
-        cmts = [" ".join(words) for words in self.pro_cmts]
+        # Joined as values if pro_cmts is a dict
+        cmts = [" ".join(words) for words in self.pro_cmts.values()]
         inputs = self.tokenizer(cmts, return_tensors="pt", padding=True, truncation=True) # reutrn pytorch tensors
         return inputs
 

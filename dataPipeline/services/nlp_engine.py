@@ -1,93 +1,79 @@
 import re
 import nltk
+import torch
+import torch.nn as nn
+import numpy as np
+from psycopg2.extras import execute_values
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
-from gensim import corpora
-from gensim.models import TfidfModel, LdaModel, LsiModel, Nmf
-from gensim.models.coherencemodel import CoherenceModel
-from schemas.etl_schema import execute_cleaned_comments_sql, insert_cleaned_comments
 
-# Initialization
-nltk.download('stopwords', quiet=True)
-nltk.download('wordnet', quiet=True)
+# --- DYNAMIC ASSET DOWNLOAD (Fixes the LookupError) ---
+# try:
+#     nltk.data.find('corpora/stopwords')
+#     nltk.data.find('corpora/wordnet')
+# except LookupError:
+#     nltk.download('stopwords', quiet=True)
+#     nltk.download('wordnet', quiet=True)
+#     nltk.download('omw-1.4', quiet=True)
+
+class SentimentLSTM(nn.Module):
+    def __init__(self, input_dim=768, hidden_dim=256, output_dim=3):
+        super(SentimentLSTM, self).__init__()
+        self.lstm = nn.LSTM(input_dim, hidden_dim, batch_first=True, bidirectional=True)
+        self.fc = nn.Linear(hidden_dim * 2, output_dim) 
+        self.softmax = nn.LogSoftmax(dim=1)
+
+    def forward(self, x):
+        _, (hidden, _) = self.lstm(x)
+        hidden = torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim=1)
+        return self.softmax(self.fc(hidden))
 
 class NLPEngine:
     @staticmethod
-    def save_processed_comments(proc_texts, ids, cursor):
-        try:
-            cursor.execute(execute_cleaned_comments_sql)
-
-            # turn token lists into a single string per comment (easy to store/search)
-            processed_strings = [" ".join(tokens) for tokens in proc_texts]
-
-            values = [(cid, ptxt) for cid, ptxt in zip(ids, processed_strings)]
-
-            cursor.executemany(insert_cleaned_comments, values)
-            return True
-
-        except Exception as e:
-            print(f"[DB Error] {e}")
-            raise
-
-    @staticmethod
     def clean_comments(comment_texts, ids, cursor):
+        """Cleans and saves to cleaned_comments."""
         lem = WordNetLemmatizer()
         stops = set(stopwords.words('english'))
-        processed = []
-        for text in comment_texts:
+        processed_data = []
+        for cid, text in zip(ids, comment_texts):
             clean = re.sub(r'http\S+|www\S+|<.*?>|[^a-zA-Z\s]', '', str(text).lower())
             tokens = [lem.lemmatize(w) for w in clean.split() if w not in stops and len(w) > 2]
-            processed.append(tokens)
-        if NLPEngine.save_processed_comments(processed, ids, cursor):
-            return True
+            processed_data.append((cid, " ".join(tokens), "Pending"))
         
-        return False
+        # This calls the variable in etl_schema.py
+        from schemas.etl_schema import insert_cleaned_comments
+        execute_values(cursor, insert_cleaned_comments, processed_data)
+        return True
 
     @staticmethod
-    def compare_models(tfidf_corpus, dictionary, tokens, n_topics=3):
-        """Runs competition between LDA, LSA, and NMF based on U_Mass Coherence."""
-        models = {
-            'LDA': LdaModel(tfidf_corpus, id2word=dictionary, num_topics=n_topics, random_state=42),
-            'LSA': LsiModel(tfidf_corpus, id2word=dictionary, num_topics=n_topics),
-            'NMF': Nmf(tfidf_corpus, id2word=dictionary, num_topics=n_topics, random_state=42)
-        }
-        
-        scores = {}
-        for name, model in models.items():
-            try:
-                # U_Mass is best for small-to-medium datasets
-                cm = CoherenceModel(model=model, corpus=tfidf_corpus, dictionary=dictionary, coherence='u_mass')
-                scores[name] = float(cm.get_coherence())
-            except:
-                scores[name] = -20.0 # Fallback
-        
-        # Determine winner (closest to 0 is best)
-        winner_name = max(scores, key=scores.get)
-        return winner_name, scores
-
-    @staticmethod
-    def run_full_pipeline(english_data):
-        """Processes English comments and saves only the preprocessed text."""
-        if not english_data:
-            return "NO_EN", {}
-
-        ids = [item['id'] for item in english_data]
-        texts = [item['comment'] for item in english_data]
-        
-        # cleaning and tokenization
-        tokens = NLPEngine.clean_comments(texts)
-        cleaned_strings = [" ".join(t) if t else "[no meaningful content]" for t in tokens]
-
-        # Topic Modeling 
-        # We use TF-IDF internally to improve accuracy, but we don't save it.
-        dictionary = corpora.Dictionary(tokens)
-        winner = "None"
-        scores = {}
-        
-        if len(dictionary) > 0:
-            bow = [dictionary.doc2bow(t) for t in tokens]
-            tfidf_model = TfidfModel(bow)
-            tfidf_corpus = tfidf_model[bow]
-            winner, scores = NLPEngine.compare_models(tfidf_corpus, dictionary, tokens, n_topics=3)
+    def run_lstm_inference(ids, cursor):
+        """Builds sequences from BERT tables and predicts sentiment."""
+        all_sequences = []
+        for cid in ids:
+            # Reconstructing word sequence using BERT tables
+            cursor.execute("""
+                SELECT wv.word_vec FROM airflow.words_occur wo
+                JOIN airflow.words_vec wv ON wo.word = wv.word AND wo.topic = wv.topic
+                WHERE %s = ANY(wo.word_cmt_ids) LIMIT 10;
+            """, (cid,))
+            vectors = [np.array(row[0]) for row in cursor.fetchall()]
             
-        return winner, scores
+            while len(vectors) < 10:
+                vectors.append(np.zeros(768))
+            all_sequences.append(vectors[:10])
+
+        X = torch.tensor(np.array(all_sequences), dtype=torch.float32)
+        model = SentimentLSTM() 
+        model.eval()
+        with torch.no_grad():
+            outputs = model(X)
+            predictions = torch.argmax(outputs, dim=1)
+        
+        mapping = {0: "Negative", 1: "Neutral", 2: "Positive"}
+        results = [(mapping[p.item()], cid) for p, cid in zip(predictions, ids)]
+
+        execute_values(cursor, """
+            UPDATE airflow.cleaned_comments SET sentiment = val.s
+            FROM (VALUES %s) AS val(s, cid)
+            WHERE comment_id = val.cid
+        """, results)

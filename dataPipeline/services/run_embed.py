@@ -71,7 +71,17 @@ def create_embeddings(vid_ids, cursor, topic):
         cursor.executemany(insert_embed_comments, cmts_vec_rows)
         cursor.executemany(insert_words_vec, words_vec_rows)
         cursor.executemany(insert_words_occur, words_occur_rows)
+        print("[+] BERT features saved successfully.")
+
+        # TRIGGER LSTM SENTIMENT ANALYSIS
+        # This function fetches the vectors we just saved and runs the Bidirectional LSTM
+        print("[*] Triggering LSTM Sentiment Inference using BERT features...")
+        try:
+            NLPEngine.run_lstm_inference(ids, cursor)
+            print("[+] Sentiment analysis complete.")
+        except Exception as e:
+            print(f"[X] LSTM Error: {e}")
 
     else:
-        print("Clean comments didn't work!!!")
+        print("[X] NLP Cleaning phase failed. Pipeline aborted.")
 
