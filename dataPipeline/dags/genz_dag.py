@@ -50,7 +50,7 @@ def start_genz_dag():
         # search videos
         vidIds = collector.search_videos(extract_info['topic'], extract_info['max_results'])
         print(f"Searching for topic: {extract_info['topic']}")
-
+        
         if not vidIds:
             print("No videos found.")
             return {'items': []}

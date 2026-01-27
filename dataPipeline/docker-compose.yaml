@@ -95,6 +95,10 @@ services:
       PYTHONPATH: /opt/airflow/dags:/opt/airflow
       YOUTUBE_API_KEY: ${YOUTUBE_API_KEY}
       DUMB_INIT_SETSID: "0"
+    #   TRANSFORMERS_OFFLINE: "1"  # Disable internet for BERT
+    #   HF_HUB_OFFLINE: "1"
+    # volumes:
+    #   - .:/opt/airflow/
 
   airflow-worker:
     <<: *airflow-common
@@ -114,11 +118,15 @@ services:
       # See https://airflow.apache.org/docs/docker-stack/entrypoint.html#signal-propagation
       DUMB_INIT_SETSID: "0"
       YOUTUBE_API_KEY: ${YOUTUBE_API_KEY}
+      TRANSFORMERS_OFFLINE: "1"  # Disable internet for BERT
+      HF_HUB_OFFLINE: "1"
     restart: always
     depends_on:
       <<: *airflow-common-depends-on
       airflow-init:
         condition: service_completed_successfully
+    volumes:
+      - .:/opt/airflow/
 
   airflow-triggerer:
     <<: *airflow-common

@@ -6,24 +6,22 @@ COPY requirements.txt /requirements.txt
 # Install the packages
 RUN pip install --no-cache-dir -r /requirements.txt
 
-# ---- Bake Hugging Face model into the image ----
+# ---- Bake BERT and NLTK into the image ----
 USER root
-
-# Make a cache dir that airflow user can write/read
-RUN mkdir -p /opt/airflow/.hf && chown -R airflow: /opt/airflow/.hf
+RUN mkdir -p /bert_model && chown -R airflow: /bert_model
 
 USER airflow
 
-# Point HF/Transformers cache to that dir
-ENV HF_HOME=/opt/airflow/.hf \
-    HUGGINGFACE_HUB_CACHE=/opt/airflow/.hf/hub \
-    TRANSFORMERS_CACHE=/opt/airflow/.hf/transformers
-
-# Download model + tokenizer during build (cached into /opt/airflow/.hf)
+# 1. Pre-download BERT into a static folder (Fast & Offline)
 RUN python -c "from transformers import BertTokenizer, BertModel; \
-BertTokenizer.from_pretrained('bert-base-uncased'); \
-BertModel.from_pretrained('bert-base-uncased')"
+t = BertTokenizer.from_pretrained('bert-base-uncased'); \
+m = BertModel.from_pretrained('bert-base-uncased'); \
+t.save_pretrained('/bert_model'); \
+m.save_pretrained('/bert_model')"
 
-# Optional: make runtime fully offline (prevents any download attempts)
+# 2. Pre-download NLTK data (Prevents LookupError/Network errors)
+RUN python -m nltk.downloader stopwords wordnet omw-1.4
+
+# Force Transformers to run in offline mode
 ENV TRANSFORMERS_OFFLINE=1 \
     HF_HUB_OFFLINE=1

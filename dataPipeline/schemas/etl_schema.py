@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS airflow.topic_collector (
     dag_id TEXT NOT NULL DEFAULT 'genz_dag',
     CONSTRAINT fk_comments
         FOREIGN KEY (id)
-        REFERENCES comments(id)
+        REFERENCES airflow.comments(id)
         ON DELETE CASCADE
 );
 """
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS airflow.processed_vidIds (
     PRIMARY KEY (vid_id, cmt_id),
     CONSTRAINT fk_comments
         FOREIGN KEY (cmt_id)
-        REFERENCES comments(id)
+        REFERENCES airflow.comments(id)
         ON DELETE CASCADE
 );
 """
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS airflow.comment_lang(
     language TEXT NOT NULL,
     CONSTRAINT fk_comments
         FOREIGN KEY (comment_id)
-        REFERENCES comments(id)
+        REFERENCES airflow.comments(id)
         ON DELETE CASCADE
 );
 """
@@ -50,6 +50,7 @@ execute_cleaned_comments_sql = """
 CREATE TABLE IF NOT EXISTS airflow.cleaned_comments (
     comment_id TEXT PRIMARY KEY,
     cleaned_text TEXT,
+    sentiment TEXT,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_comment 
         FOREIGN KEY(comment_id) 
@@ -61,7 +62,7 @@ CREATE TABLE IF NOT EXISTS airflow.cleaned_comments (
 execute_embed_comments_sql = """
 CREATE TABLE IF NOT EXISTS airflow.embed_comments (
   comment_id TEXT PRIMARY KEY
-    REFERENCES cleaned_comments(comment_id) ON DELETE CASCADE,
+    REFERENCES airflow.cleaned_comments(comment_id) ON DELETE CASCADE,
   embedding vector(768),                 
   embedded_at TIMESTAMPTZ DEFAULT now()
 );
@@ -112,10 +113,11 @@ WHERE id = %s;
 """
 
 insert_cleaned_comments = """
-INSERT INTO cleaned_comments(comment_id, cleaned_text)
-VALUES (%s, %s)
+INSERT INTO cleaned_comments(comment_id, cleaned_text, sentiment)
+VALUES %s
 ON CONFLICT (comment_id) DO UPDATE
-SET cleaned_text = EXCLUDED.cleaned_text;
+SET cleaned_text = EXCLUDED.cleaned_text,
+    sentiment = EXCLUDED.sentiment;
 """
 
 insert_embed_comments = """

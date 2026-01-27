@@ -29,9 +29,11 @@ def retrieve_data(topic: str):
     Fetches comments for the topic
     """
     sql = """
-        SELECT DISTINCT c.id, c.comment, c.author, c.p_timestamp, c.t_timestamp
+        SELECT DISTINCT c.id, c.comment, c.author, c.p_timestamp::text, c.t_timestamp::text, cl.language, cc.sentiment, cc.cleaned_text
         FROM airflow.comments c
         JOIN airflow.topic_collector tc ON tc.id = c.id
+        LEFT JOIN airflow.comment_lang cl ON cl.comment_id = c.id
+        LEFT JOIN airflow.cleaned_comments cc ON cc.comment_id = c.id
         WHERE %s = ANY(tc.topic);
     """
 
