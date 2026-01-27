@@ -1,6 +1,6 @@
 import json
 from django.db import connection
-from api.retrieve.serializers import CommentsSerializer
+from api.retrieve.serializers import CommentsSerializer, TreeNodeSerializer
 
 def _execute_and_serialize(sql: str, parms: list, serializer_cls, serialize_mode):
     try:
@@ -12,7 +12,11 @@ def _execute_and_serialize(sql: str, parms: list, serializer_cls, serialize_mode
         if not rows:
             return []
 
-        serializer = serializer_cls(data=rows, many=True, mode=serialize_mode)
+        if serialize_mode == 'tree':
+            serializer = serializer_cls(data=rows, many=True)
+        else:
+            serializer = serializer_cls(data=rows, many=True, mode=serialize_mode)
+
         # Check validation and print to terminal if it fails
         if not serializer.is_valid():
             print(f"!!! SERIALIZER ERRORS: {serializer.errors}")
@@ -56,3 +60,13 @@ def cmt_sep_data(lang: str):
         WHERE cl.language = %s;
     """
     return _execute_and_serialize(sql, [lang], CommentsSerializer, 'sep')
+
+def retrieve_tree(topic: str):
+    sql = """
+        SELECT n.id, n.parent_id, n.text, n.imp_val, n.lstm_val
+        FROM tree_nodes n
+        JOIN trees t ON t.id = n.tree_id
+        WHERE t.name = %s;
+    """
+
+    return _execute_and_serialize(sql, [topic], TreeNodeSerializer, 'tree')

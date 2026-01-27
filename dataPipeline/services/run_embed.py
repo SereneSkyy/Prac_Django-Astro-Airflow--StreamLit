@@ -6,17 +6,17 @@ from schemas.etl_schema import (execute_embed_comments_sql, execute_words_vec_sq
 def create_embeddings(vid_ids, cursor, topic):
     cursor.execute(
     """
-        SELECT c.id, c.comment
+        SELECT DISTINCT c.id, c.comment
         FROM airflow.processed_vidIds p
         JOIN airflow.comment_lang cl
           ON cl.comment_id = p.cmt_id
         JOIN airflow.comments c
           ON c.id = p.cmt_id
         WHERE p.vid_id = ANY(%s)
-          AND cl.language = 'en'
+          AND cl.language = 'en';
     """,
-    (vid_ids,)               # -> have to pass tuple to comma at the end
-)
+        (vid_ids,)              # -> has to be tuple so comma at the end
+    )
     rows = cursor.fetchall()
     if not rows:
         return print("create_embeddings: No Rows Were Fetched!!!")
@@ -40,7 +40,11 @@ def create_embeddings(vid_ids, cursor, topic):
 
         taxTree = TaxonomyAndTreeBuilder(threshold=0.45, pro_cmts=proc_cmts, target_words=target_words) 
 
-        comments_vec, words_occur, word_vectors = taxTree.build_tree()
+        comments_vec, words_occur, word_vectors, word_metadata, imp_score = taxTree.build_tree()
+
+        # ---------- create tree ----------
+        tree, roots = taxTree.create_tree(word_metadata, word_vectors)
+        taxTree.save_tree(tree, roots, cursor, topic, imp_score)
 
         # ---------- embed_comments ----------
         comment_embeddings = comments_vec.tolist()
@@ -58,9 +62,8 @@ def create_embeddings(vid_ids, cursor, topic):
 
         # ---------- words_occur normalized (topic, word, word_cmt_id) ----------
         words_occur_rows = [
-            (topic, word, [cmt_id])
+            (topic, word, cmt_ids)
             for word, cmt_ids in words_occur.items()
-            for cmt_id in cmt_ids
         ]
 
         # create tables + insert

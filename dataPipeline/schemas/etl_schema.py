@@ -86,6 +86,33 @@ CREATE TABLE IF NOT EXISTS airflow.words_occur (
 );
 """
 
+execute_table_sql = """
+CREATE TABLE IF NOT EXISTS trees (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name       TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+"""
+
+execute_table_nodes_sql = """
+CREATE TABLE IF NOT EXISTS tree_nodes (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tree_id       UUID NOT NULL REFERENCES trees(id) ON DELETE CASCADE,
+    parent_id     UUID NULL REFERENCES tree_nodes(id) ON DELETE SET NULL,
+
+    text          TEXT NOT NULL,                  -- word / phrase / label
+    imp_val       DOUBLE PRECISION,               -- importance score (optional)
+    lstm_val      DOUBLE PRECISION,               -- single value (optional)
+    lstm_payload  JSONB NOT NULL DEFAULT '{}'::jsonb,  -- word-wise / vector / extra data
+
+    is_active     BOOLEAN NOT NULL DEFAULT TRUE,  -- soft prune flag
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- Optional: basic validation
+    CONSTRAINT imp_val_range CHECK (imp_val IS NULL OR (imp_val >= 0 AND imp_val <= 1))
+);
+"""
+
 insert_comments_sql = """
 INSERT INTO comments (id, comment, author, p_timestamp, t_timestamp)
 VALUES (%s, %s, %s, %s, %s)

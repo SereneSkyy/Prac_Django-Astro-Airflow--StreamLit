@@ -20,3 +20,14 @@ class CommentsSerializer(serializers.Serializer):
             for name in list(self.fields):
                 if name not in keep:
                     self.fields.pop(name)
+                    self.fields.pop(name)
+        elif mode == "sep":
+            # keep all fields (default behavior)
+            pass
+
+class TreeNodeSerializer(serializers.Serializer):
+    id = serializers.UUIDField()  
+    parent_id = serializers.UUIDField(required=False, allow_null=True)
+    text = serializers.CharField()
+    imp_val = serializers.FloatField(required=False, allow_null=True)
+    lstm_val = serializers.FloatField(required=False, allow_null=True)

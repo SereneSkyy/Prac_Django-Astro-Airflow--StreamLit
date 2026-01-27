@@ -1,4 +1,3 @@
-import json
 import torch
 import numpy as np
 import os  
@@ -62,7 +61,7 @@ class TaxonomyAndTreeBuilder:
         comment_vecs = summed / counts                   # (batch, 768)
         return comment_vecs, last_hidden
 
-    def _create_tree(self, word_metadata, word_vectors):
+    def create_tree(self, word_metadata, word_vectors):
         """
         word_metadata: dict of {word: {"abs_score": float}}
         word_vectors: dict of {word: np.array}
@@ -117,31 +116,48 @@ class TaxonomyAndTreeBuilder:
                 # Recursion: draw the children, but increase the indent
                 self._draw_tree(tree, tree[node], indent + 1)
 
-    def _save_to_json(self, tree, roots, filename="hierarchy_tree.json"):
-        """
-        Saves the generated tree and root nodes to a JSON file.
-        """
-        #cCreate the data structure for export
-        export_data = {
-            "tree": tree,
-            "roots": roots
-        }
+    def _build_parent_map(self, tree, roots):
+        parent = {r: None for r in roots}
+        for p, children in tree.items():
+            for c in children:
+                parent[c] = p
+        return parent
 
-        # helper function to handle non-serializable objects (like NumPy arrays)
-        def default_serializer(obj):
-            if isinstance(obj, np.ndarray):
-                return obj.tolist()
-            if isinstance(obj, np.float32):
-                return float(obj)
-            raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+    def save_tree(self, tree, roots, cursor, topic, imp_score):
 
-        try:
-            with open(filename, "w", encoding="utf-8") as f:
-                # indent=4 makes the file human-readable
-                json.dump(export_data, f, indent=4, default=default_serializer)
-            print(f"Successfully saved taxonomy to {filename}")
-        except Exception as e:
-            print(f"Error saving to JSON: {e}")
+        parent_map = self._build_parent_map(tree, roots)
+
+        # create tree row
+        cursor.execute("INSERT INTO trees (name) VALUES (%s) RETURNING id;", (topic,))
+        tree_id = cursor.fetchone()[0]
+        # insert all nodes first (parent_id NULL for now)
+        word_to_id = {}
+        for word in parent_map.keys():
+            imp_val = imp_score[word]
+            cursor.execute(
+                """
+                INSERT INTO tree_nodes (tree_id, text, imp_val, parent_id)
+                VALUES (%s, %s, %s, NULL)
+                RETURNING id;
+                """,
+                (tree_id, word, imp_val),
+            )
+            word_to_id[word] = cursor.fetchone()[0]
+        # update parent_id for non-roots
+        for child, parent in parent_map.items():
+            if parent is None:
+                continue
+            cursor.execute(
+                """
+                UPDATE tree_nodes
+                SET parent_id = %s
+                WHERE tree_id = %s AND id = %s;
+                """,
+                (word_to_id[parent], tree_id, word_to_id[child]),
+            )
+
+    def _count_word_imp(self, words_occur, n_cmts):
+        return len(words_occur) / n_cmts
 
     def build_tree(self):
         # tokenize and get comments embeddings
@@ -156,6 +172,8 @@ class TaxonomyAndTreeBuilder:
 
         # for every unq word, find its context and score
         occur = {}
+        imp_score = {}
+        n_cmts = len(self.pro_cmts)
         for word in self.target_words:
             temp_occur = []
             for i, (ids, cmt) in enumerate(self.pro_cmts.items()):
@@ -178,9 +196,9 @@ class TaxonomyAndTreeBuilder:
                 score, mean_vec = self.calculate_dynamic_abstractness(temp_occur, cmts_vec)
             word_metadata[word] = {"abs_score": score}
             word_vectors[word] = mean_vec
-        
-        tree, roots = self._create_tree(word_metadata, word_vectors)
-        # self._draw_tree(tree, roots)
-        self._save_to_json(tree, roots) 
+            if word not in occur:
+                imp_score[word] = self._count_word_imp([], n_cmts)
+            else:
+                imp_score[word] = self._count_word_imp(occur[word], n_cmts)
 
-        return cmts_vec, occur, word_vectors
+        return cmts_vec, occur, word_vectors, word_metadata, imp_score
