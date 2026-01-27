@@ -1,19 +1,19 @@
 {
     "tree": {
-        "nepal": [
-            "youth",
-            "genz",
-            "corruption",
-            "protest"
+        "genz": [
+            "youth"
         ],
         "youth": [
+            "corruption",
             "kpoli"
         ],
-        "genz": [],
         "corruption": [
+            "protest",
+            "nepal",
             "anti-corruption"
         ],
         "protest": [],
+        "nepal": [],
         "kpoli": [
             "balenshah",
             "singhadurbar",
@@ -46,6 +46,6 @@
         "nepobaby": []
     },
     "roots": [
-        "nepal"
+        "genz"
     ]
 }
