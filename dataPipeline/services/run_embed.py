@@ -18,7 +18,7 @@ def create_embeddings(vid_ids, cursor, topic):
     )
     rows = cursor.fetchall()
     if not rows:
-        return print("create_embeddings: No English Rows Found")
+        return print("create_embeddings: No English Rows Were Fetched!!!")
     
     comment_texts = [comment for (_id, comment) in rows]
     ids = [_id for(_id, _comment) in rows]
@@ -29,25 +29,50 @@ def create_embeddings(vid_ids, cursor, topic):
         rows = cursor.fetchall()
         proc_cmts = {cid: comment.split() for(cid, comment) in rows}
 
-        target_words = ['protest', 'genz', 'kpoli', 'balenshah', 'corruption', 'singhadurbar', 'gaganthapa', 'youth', 'frustration', 'government', 'nepal', 'political', 'curfew', 'clash']
+        target_words = ['protest', 'genz', 'kpoli', 'balenshah', 'corruption', 'singhadurbar', 'gaganthapa', 'youth', 'frustration', 'government', 'nepal', 'political', 'curfew', 'clash', 'rights', 'nepobaby']
 
-        # 1. Initialize BERT and build taxonomy structure
+        # setting threshold to 0.30 
         taxTree = TaxonomyAndTreeBuilder(threshold=0.30, pro_cmts=proc_cmts, target_words=target_words) 
+
         comments_vec, words_occur, word_vectors, word_metadata, imp_score = taxTree.build_tree()
 
-        # 2. RUN LSTM INFERENCE FIRST (To ensure sentiments exist for the tree)
+        # ---------- Requirement: Run LSTM FIRST ----------
         print("[*] Triggering LSTM Sentiment Inference...")
         try:
             NLPEngine.run_lstm_inference(ids, cursor)
         except Exception as e:
             print(f"[X] LSTM Error: {e}")
 
-        # 3. BUILD AND SAVE PRUNED TREE
+        # ---------- Requirement: Create and Save Tree ----------
         cursor.execute(execute_trees_sql)
         cursor.execute(execute_tree_nodes_sql)
         tree, roots = taxTree.create_tree(word_metadata, word_vectors, imp_score, max_nodes=20)
         taxTree.save_tree(tree, roots, cursor, topic, imp_score, words_occur)
+
+        # ---------- embed_comments ----------
+        comment_embeddings = comments_vec.tolist()
+        cmts_vec_rows = [(cid, emb) for cid, emb in zip(ids, comment_embeddings)]
+
+        # ---------- words_vec (topic, word, word_vec) ----------
+        words_vec_rows = []
+        for word, vec in word_vectors.items():
+            if hasattr(vec, "tolist"):
+                vec = vec.tolist()
+            words_vec_rows.append((topic, word, vec))
+
+        # ---------- words_occur normalized ----------
+        words_occur_rows = [(topic, word, cids) for word, cids in words_occur.items()]
+
+        # insert other features
+        cursor.execute(execute_embed_comments_sql)
+        cursor.execute(execute_words_vec_sql)
+        cursor.execute(execute_words_occur_sql)
+
+        cursor.executemany(insert_embed_comments, cmts_vec_rows)
+        cursor.executemany(insert_words_vec, words_vec_rows)
+        cursor.executemany(insert_words_occur, words_occur_rows)
         
         print("[+] BERT Taxonomy and features saved successfully.")
+
     else:
-        print("[X] NLP Cleaning phase failed.")
+        print("[X] NLP Cleaning phase failed. Pipeline aborted.")

@@ -67,10 +67,8 @@ class TaxonomyAndTreeBuilder:
         Adaptive Pruning: Keeps only Top-K significant words.
         Automatically removes sub-branches if parent is missing.
         """
-        # 1. Adapt pruning floor based on sample size (0.01 floor if many comments, 0 if few)
+        # Adapt pruning floor based on sample size
         floor = 0.01 if len(self.pro_cmts) > 10 else 0.0
-        
-        # Sort by importance and take top N
         sorted_active = sorted(imp_score.items(), key=lambda x: x[1], reverse=True)[:max_nodes]
         active_words = [w[0] for w in sorted_active if w[1] >= floor]
         
@@ -80,9 +78,8 @@ class TaxonomyAndTreeBuilder:
         tree = {word: [] for word in active_sorted}
         roots = []
 
-        # 2. Branching Sensitivity: Use a slightly lower threshold internaly if passed threshold is too high
-        # This prevents the "Line-shaped tree" by allowing multiple branches per node
-        effective_threshold = min(self.threshold, 0.28)
+        # Internal branching sensitivity cap
+        branch_threshold = min(self.threshold, 0.28)
 
         for i, word in enumerate(active_sorted):
             # the most abstract word is automatically a root
@@ -103,55 +100,79 @@ class TaxonomyAndTreeBuilder:
                     best_match = potential_parent
 
             # assign to parent if it passes threshold, otherwise it's a new root
-            if best_match and max_sim >= effective_threshold:
+            if best_match and max_sim >= branch_threshold:
                 tree[best_match].append(word)
             else:
                 roots.append(word)
 
         return tree, roots
 
+    def _draw_tree(self, tree, nodes, indent=0):
+        for node in nodes:
+            # create the visual prefix (the "branch" look)
+            # we use four spaces per level of depth
+            prefix = "    " * indent + "└── "
+            
+            print(f"{prefix}{node}")
+
+            # check if this word has children in our dictionary
+            if node in tree and tree[node]:
+                # Recursion: draw the children, but increase the indent
+                self._draw_tree(tree, tree[node], indent + 1)
+
+    def _build_parent_map(self, tree, roots):
+        parent = {r: None for r in roots}
+        for p, children in tree.items():
+            for c in children:
+                parent[c] = p
+        return parent
+
     def save_tree(self, tree, roots, cursor, topic, imp_score, occur):
         """
-        Saves the tree using UUID hierarchy and inputs LSTM values.
+        Your restored logic: Two-pass insertion with UUID handshake.
+        Added sentiment mapping to fill lstm_val.
         """
-        # 1. Map LSTM Predicted Sentiments from DB to individual words
-        # Professional Mapping: Negative (0), Neutral (0.5), Positive (1.0)
+        # --- NEW: Sentiment Mapping ---
         mapping = {"Positive": 1.0, "Neutral": 0.5, "Negative": 0.0}
-        word_sentiment_vals = {}
-        
+        word_sent_vals = {}
         for word, cids in occur.items():
-            # Convert cids to a list for the ANY(%s) SQL syntax
             cursor.execute("SELECT sentiment FROM airflow.cleaned_comments WHERE comment_id = ANY(%s)", (list(cids),))
-            sents = [r[0] for r in cursor.fetchall() if r[0] is not None and r[0] != 'Pending']
-            
-            if sents:
-                # Find the most frequent sentiment for this concept
-                mode_sent = max(set(sents), key=sents.count)
-                word_sentiment_vals[word] = mapping.get(mode_sent, 0.5)
-            else:
-                # Default to 0.5 (Neutral) if no valid classifications found
-                word_sentiment_vals[word] = 0.5
+            sents = [r[0] for r in cursor.fetchall() if r[0] not in [None, 'Pending']]
+            word_sent_vals[word] = mapping.get(max(set(sents), key=sents.count), 0.5) if sents else 0.5
 
-        # 2. Insert Tree Root Record
+        parent_map = self._build_parent_map(tree, roots)
+
+        # create tree row
         cursor.execute("INSERT INTO airflow.trees (name) VALUES (%s) RETURNING id;", (topic,))
-        tree_uuid = cursor.fetchone()[0]
+        tree_id = cursor.fetchone()[0]
 
-        # 3. Recursive function to maintain Parent ID chain (UUID Handshake)
-        def insert_node_recursive(word, parent_uuid=None):
+        # 1st Pass: insert all nodes first (parent_id NULL for now)
+        word_to_id = {}
+        for word in parent_map.keys():
+            imp_val = imp_score.get(word, 0)
+            l_val = word_sent_vals.get(word, 0.5) # Fetched from LSTM map
             cursor.execute(
                 """
-                INSERT INTO airflow.tree_nodes (tree_id, parent_id, text, imp_val, lstm_val)
-                VALUES (%s, %s, %s, %s, %s) RETURNING id;
+                INSERT INTO airflow.tree_nodes (tree_id, text, imp_val, lstm_val, parent_id)
+                VALUES (%s, %s, %s, %s, NULL)
+                RETURNING id;
                 """,
-                (tree_uuid, parent_uuid, word, imp_score.get(word, 0), word_sentiment_vals.get(word, 0.5))
+                (tree_id, word, imp_val, l_val),
             )
-            node_id = cursor.fetchone()[0]
-            # Recursion: process children linked to this node
-            for child in tree.get(word, []):
-                insert_node_recursive(child, node_id)
+            word_to_id[word] = cursor.fetchone()[0]
 
-        for root in roots:
-            insert_node_recursive(root)
+        # 2nd Pass: update parent_id for non-roots
+        for child, parent in parent_map.items():
+            if parent is None:
+                continue
+            cursor.execute(
+                """
+                UPDATE airflow.tree_nodes
+                SET parent_id = %s
+                WHERE tree_id = %s AND id = %s;
+                """,
+                (word_to_id[parent], tree_id, word_to_id[child]),
+            )
 
     def build_tree(self):
         # tokenize and get comments embeddings
