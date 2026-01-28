@@ -1,3 +1,4 @@
+import json
 import torch
 import numpy as np
 import os  
@@ -61,24 +62,32 @@ class TaxonomyAndTreeBuilder:
         comment_vecs = summed / counts                   # (batch, 768)
         return comment_vecs, last_hidden
 
-    def create_tree(self, word_metadata, word_vectors):
+    def create_tree(self, word_metadata, word_vectors, imp_score, max_nodes=25):
         """
-        word_metadata: dict of {word: {"abs_score": float}}
-        word_vectors: dict of {word: np.array}
+        Adaptive Pruning: Keeps only Top-K significant words.
+        Automatically removes sub-branches if parent is missing.
         """
-        # sort words by abstractness (Descending: Highest score first)
-        sorted_words = sorted(word_metadata.keys(), 
-                              key=lambda w: word_metadata[w]["abs_score"], 
-                              reverse=True)
+        # 1. Adapt pruning floor based on sample size (0.01 floor if many comments, 0 if few)
+        floor = 0.01 if len(self.pro_cmts) > 10 else 0.0
         
-        tree = {word: [] for word in sorted_words}
+        # Sort by importance and take top N
+        sorted_active = sorted(imp_score.items(), key=lambda x: x[1], reverse=True)[:max_nodes]
+        active_words = [w[0] for w in sorted_active if w[1] >= floor]
+        
+        # sort words by abstractness (Descending: Highest score first)
+        active_sorted = sorted(active_words, key=lambda w: word_metadata[w]["abs_score"], reverse=True)
+        
+        tree = {word: [] for word in active_sorted}
         roots = []
 
-        for i, word in enumerate(sorted_words):
+        # 2. Branching Sensitivity: Use a slightly lower threshold internaly if passed threshold is too high
+        # This prevents the "Line-shaped tree" by allowing multiple branches per node
+        effective_threshold = min(self.threshold, 0.28)
+
+        for i, word in enumerate(active_sorted):
             # the most abstract word is automatically a root
             if i == 0:
-                roots.append(word)
-                continue
+                roots.append(word); continue
 
             best_match = None
             max_sim = -1
@@ -86,106 +95,84 @@ class TaxonomyAndTreeBuilder:
 
             # compare current word against all words more abstract than it (potential parents)
             for j in range(i):
-                potential_parent = sorted_words[j]
+                potential_parent = active_sorted[j]
                 parent_vec = word_vectors[potential_parent].reshape(1, -1)
-                
                 sim = cosine_similarity(parent_vec, child_vec)[0][0]
-                
                 if sim > max_sim:
                     max_sim = sim
                     best_match = potential_parent
 
             # assign to parent if it passes threshold, otherwise it's a new root
-            if best_match and max_sim >= self.threshold:
+            if best_match and max_sim >= effective_threshold:
                 tree[best_match].append(word)
             else:
                 roots.append(word)
 
         return tree, roots
 
-    def _draw_tree(self, tree, nodes, indent=0):
-        for node in nodes:
-            # create the visual prefix (the "branch" look)
-            # we use four spaces per level of depth
-            prefix = "    " * indent + "└── "
+    def save_tree(self, tree, roots, cursor, topic, imp_score, occur):
+        """
+        Saves the tree using UUID hierarchy and inputs LSTM values.
+        """
+        # 1. Map LSTM Predicted Sentiments from DB to individual words
+        # Professional Mapping: Negative (0), Neutral (0.5), Positive (1.0)
+        mapping = {"Positive": 1.0, "Neutral": 0.5, "Negative": 0.0}
+        word_sentiment_vals = {}
+        
+        for word, cids in occur.items():
+            # Convert cids to a list for the ANY(%s) SQL syntax
+            cursor.execute("SELECT sentiment FROM airflow.cleaned_comments WHERE comment_id = ANY(%s)", (list(cids),))
+            sents = [r[0] for r in cursor.fetchall() if r[0] is not None and r[0] != 'Pending']
             
-            print(f"{prefix}{node}")
+            if sents:
+                # Find the most frequent sentiment for this concept
+                mode_sent = max(set(sents), key=sents.count)
+                word_sentiment_vals[word] = mapping.get(mode_sent, 0.5)
+            else:
+                # Default to 0.5 (Neutral) if no valid classifications found
+                word_sentiment_vals[word] = 0.5
 
-            # check if this word has children in our dictionary
-            if node in tree and tree[node]:
-                # Recursion: draw the children, but increase the indent
-                self._draw_tree(tree, tree[node], indent + 1)
+        # 2. Insert Tree Root Record
+        cursor.execute("INSERT INTO airflow.trees (name) VALUES (%s) RETURNING id;", (topic,))
+        tree_uuid = cursor.fetchone()[0]
 
-    def _build_parent_map(self, tree, roots):
-        parent = {r: None for r in roots}
-        for p, children in tree.items():
-            for c in children:
-                parent[c] = p
-        return parent
-
-    def save_tree(self, tree, roots, cursor, topic, imp_score):
-
-        parent_map = self._build_parent_map(tree, roots)
-
-        # create tree row
-        cursor.execute("INSERT INTO trees (name) VALUES (%s) RETURNING id;", (topic,))
-        tree_id = cursor.fetchone()[0]
-        # insert all nodes first (parent_id NULL for now)
-        word_to_id = {}
-        for word in parent_map.keys():
-            imp_val = imp_score[word]
+        # 3. Recursive function to maintain Parent ID chain (UUID Handshake)
+        def insert_node_recursive(word, parent_uuid=None):
             cursor.execute(
                 """
-                INSERT INTO tree_nodes (tree_id, text, imp_val, parent_id)
-                VALUES (%s, %s, %s, NULL)
-                RETURNING id;
+                INSERT INTO airflow.tree_nodes (tree_id, parent_id, text, imp_val, lstm_val)
+                VALUES (%s, %s, %s, %s, %s) RETURNING id;
                 """,
-                (tree_id, word, imp_val),
+                (tree_uuid, parent_uuid, word, imp_score.get(word, 0), word_sentiment_vals.get(word, 0.5))
             )
-            word_to_id[word] = cursor.fetchone()[0]
-        # update parent_id for non-roots
-        for child, parent in parent_map.items():
-            if parent is None:
-                continue
-            cursor.execute(
-                """
-                UPDATE tree_nodes
-                SET parent_id = %s
-                WHERE tree_id = %s AND id = %s;
-                """,
-                (word_to_id[parent], tree_id, word_to_id[child]),
-            )
+            node_id = cursor.fetchone()[0]
+            # Recursion: process children linked to this node
+            for child in tree.get(word, []):
+                insert_node_recursive(child, node_id)
 
-    def _count_word_imp(self, words_occur, n_cmts):
-        return len(words_occur) / n_cmts
+        for root in roots:
+            insert_node_recursive(root)
 
     def build_tree(self):
         # tokenize and get comments embeddings
-        # summarized vector embed for each comment i.e., cmts_vec[0], cmts_vec[1], ...
-        cmts_vec, words_vec = self.run_bert()
-        cmts_vec = cmts_vec.detach().numpy()
+        cmts_vec_t, words_vec_t = self.run_bert()
+        cmts_vec = cmts_vec_t.detach().numpy()
+        words_vec = words_vec_t.detach().numpy()
 
         # map the words to its abs score
-        word_metadata = {}
-        # separate map for 1D vecs later used in draw tree
-        word_vectors = {}
+        word_metadata, word_vectors, occur, imp_score = {}, {}, {}, {}
+        n_cmts = len(self.pro_cmts)
 
         # for every unq word, find its context and score
-        occur = {}
-        imp_score = {}
-        n_cmts = len(self.pro_cmts)
         for word in self.target_words:
             temp_occur = []
             for i, (ids, cmt) in enumerate(self.pro_cmts.items()):
                 if word in cmt:
-                    # find pos of word to get the specific BERT vector
                     idx = cmt.index(word)
-                    # store word and its associated comment idx
-                    if word in occur.keys():
-                        occur[word].append(ids)
-                    else: occur[word] = [ids]
+                    if word not in occur: occur[word] = []
+                    occur[word].append(ids)
                     # BERT adds a [CLS] token at index 0, so words at idx + 1
-                    temp_occur.append(words_vec[i, idx+1, :].detach().numpy())
+                    temp_occur.append(words_vec[i, idx+1, :])
             if not temp_occur:
                 # get a standalone vector if word not in comments
                 inputs = self.tokenizer(word, return_tensors="pt")
@@ -194,11 +181,9 @@ class TaxonomyAndTreeBuilder:
                 score = 0.5 # neutral abs for unseen words
             else:
                 score, mean_vec = self.calculate_dynamic_abstractness(temp_occur, cmts_vec)
+            
             word_metadata[word] = {"abs_score": score}
             word_vectors[word] = mean_vec
-            if word not in occur:
-                imp_score[word] = self._count_word_imp([], n_cmts)
-            else:
-                imp_score[word] = self._count_word_imp(occur[word], n_cmts)
-
+            imp_score[word] = len(occur.get(word, [])) / n_cmts if n_cmts > 0 else 0
+        
         return cmts_vec, occur, word_vectors, word_metadata, imp_score

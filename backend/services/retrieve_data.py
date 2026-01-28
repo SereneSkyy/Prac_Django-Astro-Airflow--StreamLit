@@ -64,8 +64,8 @@ def cmt_sep_data(lang: str):
 def retrieve_tree(topic: str):
     sql = """
         SELECT n.id, n.parent_id, n.text, n.imp_val, n.lstm_val
-        FROM tree_nodes n
-        JOIN trees t ON t.id = n.tree_id
+        FROM airflow.tree_nodes n
+        JOIN airflow.trees t ON t.id = n.tree_id
         WHERE t.name = %s;
     """
 
