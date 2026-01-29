@@ -70,7 +70,7 @@ class TaxonomyAndTreeBuilder:
         # Adapt pruning floor based on sample size
         floor = 0.01 if len(self.pro_cmts) > 10 else 0.0
         sorted_active = sorted(imp_score.items(), key=lambda x: x[1], reverse=True)[:max_nodes]
-        active_words = [w[0] for w in sorted_active if w[1] >= floor]
+        active_words = [w[0] for w in sorted_active if w[1] >= floor]  
         
         # sort words by abstractness (Descending: Highest score first)
         active_sorted = sorted(active_words, key=lambda w: word_metadata[w]["abs_score"], reverse=True)
