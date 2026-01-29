@@ -86,16 +86,16 @@ CREATE TABLE IF NOT EXISTS airflow.words_occur (
 );
 """
 
-execute_table_sql = """
-CREATE TABLE IF NOT EXISTS trees (
+execute_trees_sql = """
+CREATE TABLE IF NOT EXISTS airflow.trees (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name       TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 """
 
-execute_table_nodes_sql = """
-CREATE TABLE IF NOT EXISTS tree_nodes (
+execute_tree_nodes_sql = """
+CREATE TABLE IF NOT EXISTS airflow.tree_nodes (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tree_id       UUID NOT NULL REFERENCES trees(id) ON DELETE CASCADE,
     parent_id     UUID NULL REFERENCES tree_nodes(id) ON DELETE SET NULL,
