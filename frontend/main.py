@@ -25,7 +25,6 @@ st.markdown("""
     <style>
     [data-testid="stMetric"] { background-color: #ffffff; border: 1px solid #e2e8f0; padding: 15px; border-radius: 12px; }
     h1 { color: #1e293b; font-weight: 800; }
-    .stDataFrame { border-radius: 12px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -40,6 +39,7 @@ def render_styled_tree(topic):
         def build_nested(p_id):
             children = []
             for n in flat_nodes:
+                # Ensure we compare UUIDs as strings
                 if str(n.get('parent_id')) == str(p_id):
                     score = n.get('lstm_val', 0.5)
                     imp = n.get('imp_val', 0)
@@ -105,7 +105,7 @@ def monitor_dag_progress(dag_id, run_id):
 
 # --- UI ---
 st.title("Sentiment Analyzer")
-st.caption("AI Engine • BERT Semantic Taxonomy • Bi-LSTM Opinion Classification")
+st.caption("AI Engine • BERT Semantic Taxonomy • Bi-LSTM Classification")
 
 search_container = st.container(border=True)
 with search_container:
