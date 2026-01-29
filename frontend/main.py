@@ -4,7 +4,6 @@ import pandas as pd
 from streamlit_echarts import st_echarts
 
 # 1. PATH CONFIGURATION
-# Preserving the logic to bridge the frontend with dataPipeline services
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 data_pipeline_path = os.path.join(project_root, 'dataPipeline')
 
@@ -14,66 +13,59 @@ if data_pipeline_path not in sys.path: sys.path.append(data_pipeline_path)
 from services.check_dag_status import get_tasks, check_dag_status
 from services.retrieve_data import preview_data
 
-# --- SYSTEM CONFIGURATION ---
+# --- SYSTEM SETTINGS ---
 API_BASE = "http://127.0.0.1:8000/api"
 AIRFLOW_API = "http://127.0.0.1:8080/api/v1/dags"
-DEFAULT_DAG_ID = "genz_dag" # Hardcoded to simplify user experience
+DEFAULT_DAG_ID = "genz_dag"
 
 st.set_page_config(page_title="Sentiment Analyzer", layout="wide", initial_sidebar_state="collapsed")
 
-# --- UI STYLING ---
+# --- CUSTOM CSS ---
 st.markdown("""
     <style>
-    /* Professional Metric Cards */
-    [data-testid="stMetric"] {
-        background-color: #ffffff;
-        border: 1px solid #e2e8f0;
-        padding: 15px;
-        border-radius: 12px;
-    }
-    /* Header Font Styling */
+    [data-testid="stMetric"] { background-color: #ffffff; border: 1px solid #e2e8f0; padding: 15px; border-radius: 12px; }
     h1 { color: #1e293b; font-weight: 800; }
-    .stDataFrame { border-radius: 12px; }
     </style>
     """, unsafe_allow_html=True)
 
 def render_styled_tree(topic):
-    """
-    Renders an interactive Knowledge Graph.
-    Uses recursive mapping to show branching hierarchy and hover insights.
-    """
+    """Professional Knowledge Graph with working tooltips for LSTM value and Sentiment."""
     try:
         res = requests.get(f"{API_BASE}/retrieve/tree/{topic}")
-        if res.status_code != 200: return st.info("Synchronizing taxonomy...")
+        if res.status_code != 200: return st.info("Intelligence map synchronizing...")
         flat_nodes = res.json()
         if not flat_nodes or 'error' in str(flat_nodes): return st.info("Analysis in progress...")
 
         def build_nested(p_id):
             children = []
             for n in flat_nodes:
+                # Ensure we compare UUIDs as strings
                 if str(n.get('parent_id')) == str(p_id):
-                    l_val = n.get('lstm_val', 0.5)
+                    # Data Extraction
+                    score = n.get('lstm_val', 0.5)
                     imp = n.get('imp_val', 0)
                     
-                    # Professional Color Palette: Emerald (Pos), Rose (Neg), Slate (Neu)
-                    color = "#10b981" if l_val > 0.6 else ("#f43f5e" if l_val < 0.4 else "#64748b")
-                    sent_text = "Positive" if l_val > 0.6 else ("Negative" if l_val < 0.4 else "Neutral")
+                    # Logic for Labels
+                    if score > 0.6: label, color = "Positive", "#10b981"
+                    elif score < 0.4: label, color = "Negative", "#f43f5e"
+                    else: label, color = "Neutral", "#64748b"
                     
-                    # Symbol Size correlates to Importance (min 12, max 35)
                     size = 12 + (imp * 80)
                     size = min(max(size, 12), 35)
 
                     children.append({
                         "name": str(n.get('text', '')).upper(),
-                        "value": f"{round(imp * 100, 1)}%", # Mapped to {c} in tooltip
-                        "sentiment": sent_text,
+                        "value": round(imp, 3), # This maps to {c} in tooltip
+                        # --- CUSTOM DATA KEYS (Crucial for Tooltip) ---
+                        "lstm_val": round(score, 2),
+                        "sentiment": label,
+                        # ----------------------------------------------
                         "symbolSize": size,
                         "itemStyle": {"color": color, "borderColor": color, "borderWidth": 2},
                         "children": build_nested(n.get('id'))
                     })
             return children
 
-        # Primary concept node
         chart_data = {
             "name": topic.upper(), 
             "symbolSize": 20, 
@@ -85,7 +77,9 @@ def render_styled_tree(topic):
             "tooltip": {
                 "trigger": "item",
                 "triggerOn": "mousemove",
-                "formatter": "<b>{b}</b><br/>Importance: {c}<br/>"
+                # Professional Formatter: {b}=Name, {c}=Value(Importance)
+                # To access custom keys like 'lstm_val', we use the data object reference
+                "formatter": "{b}<br/>Importance: {c}<br/>LSTM Value: {lstm_val}<br/>Context: {sentiment}"
             },
             "series": [{
                 "type": "tree",
@@ -101,11 +95,10 @@ def render_styled_tree(topic):
                 "animationDuration": 600
             }]
         }
-        st_echarts(opts, height="500px")
+        st_echarts(opts, height="550px")
     except Exception as e: st.error(f"Visualization Error: {e}")
 
 def monitor_dag_progress(dag_id, run_id):
-    """Wait for all tasks in a DAG to finish success."""
     queue = get_tasks(dag_id, run_id)[::-1]
     progress_bar = st.progress(0)
     total, done = len(queue), 0
@@ -118,70 +111,53 @@ def monitor_dag_progress(dag_id, run_id):
         time.sleep(2)
     return "success"
 
-# --- HEADER ---
+# --- UI HEADER ---
 st.title("Sentiment Analyzer")
-st.caption("AI Engine • BERT Semantic Taxonomy • Bi-LSTM Opinion Classification")
+st.caption("AI Engine • BERT Semantic Taxonomy • Bi-LSTM Classification")
 
 # --- ALIGNED SEARCH BAR ---
-# Using vertical_alignment="bottom" ensures the button and text input are on the same line
 search_container = st.container(border=True)
 with search_container:
     col1, col2 = st.columns([5, 1], vertical_alignment="bottom")
-    topic_input = col1.text_input("Analysis Topic", placeholder="Enter a topic (e.g. Nepal politics)")
+    topic_input = col1.text_input("Analysis Concept", placeholder="Enter a topic...")
     trigger_btn = col2.button("Run Analysis", use_container_width=True, type="primary")
 
 if trigger_btn and topic_input:
     try:
-        # EXECUTION PHASES
         with st.status("Initializing Analysis Pipeline...", expanded=True) as status_box:
-            status_box.write("Phase 1: Scraping data and validating sources...")
+            status_box.write("Step 1: Harvesting data from social sources...")
             init_res = requests.post(f"{API_BASE}/ingest/{DEFAULT_DAG_ID}/{topic_input}").json()
             
             if monitor_dag_progress(DEFAULT_DAG_ID, init_res["dag_run_id"]) == "success":
-                status_box.write("Phase 2: Semantic Mapping & Sentiment Inference...")
-                time.sleep(5) # Registration buffer
+                status_box.write("Step 2: Processing BERT Vectors & LSTM Sentiment...")
+                time.sleep(5)
                 res = requests.get(f"{AIRFLOW_API}/embed_dag/dagRuns?limit=1&order_by=-execution_date", auth=("airflow", "airflow")).json()
                 
                 if res["dag_runs"] and monitor_dag_progress("embed_dag", res["dag_runs"][0]["dag_run_id"]) == "success":
                     status_box.update(label="Analysis Sequence Complete!", state="complete", expanded=False)
-                    st.toast("Intelligence Synchronized", icon="✅")
                 else: st.error("AI Phase Failed")
             else: st.error("Data Collection Failed")
 
-        # --- VISUALIZATION LAYER ---
+        # --- RESULTS ---
         result_rows = preview_data(topic_input)
         if result_rows and isinstance(result_rows, list):
             df = pd.DataFrame(result_rows)
             
-            # Row 1: Dashboard Metrics
             st.divider()
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("Sample Size", len(df))
             if 'sentiment' in df.columns:
-                m2.metric("Positive Opinions", len(df[df['sentiment'] == 'Positive']))
-                m3.metric("Negative Opinions", len(df[df['sentiment'] == 'Negative']))
-                m4.metric("Neutral / Others", len(df[df['sentiment'] == 'Neutral']))
+                m2.metric("Positive", len(df[df['sentiment'] == 'Positive']))
+                m3.metric("Negative", len(df[df['sentiment'] == 'Negative']))
+                m4.metric("Neutral", len(df[df['sentiment'] == 'Neutral']))
 
-            # Row 2: Knowledge Graph
             st.subheader("Semantic Taxonomy Tree")
-            st.caption("Interactive graph showing hierarchical concept relationships. Hover nodes for weight and context.")
+            st.caption("Interactive map of concept clusters. Hover for granular AI metrics.")
             render_styled_tree(topic_input)
 
-            # Row 3: Public Sentiment Feed (Cleaned Data Hidden)
             st.subheader("Public Opinion Feed")
-            mapping = {
-                'author': 'Author',
-                'comment': 'YouTube Comment',
-                'sentiment': 'AI Sentiment',
-                'p_timestamp': 'Date Posted'
-            }
-            # Rename existing columns for viewer readability
+            mapping = {'author': 'Author', 'comment': 'YouTube Comment', 'sentiment': 'AI Sentiment', 'p_timestamp': 'Date Posted'}
             existing = [c for c in mapping.keys() if c in df.columns]
-            clean_view_df = df[existing].copy().rename(columns=mapping)
-            
-            st.dataframe(clean_view_df, use_container_width=True, hide_index=True)
-        else:
-            st.warning("Analysis complete, but no valid data matches the specified filters.")
-
-    except Exception as e:
-        st.error(f"System Operational Error: {e}")
+            clean_df = df[existing].copy().rename(columns=mapping)
+            st.dataframe(clean_df, use_container_width=True, hide_index=True)
+    except Exception as e: st.error(f"Handshake Error: {e}")
