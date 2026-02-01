@@ -6,12 +6,14 @@ import numpy as np
 from psycopg2.extras import execute_values
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
+import spacy
+noun_nlp = spacy.load("en_core_web_sm")
 
 # --- DYNAMIC ASSET DOWNLOAD (Fixes the LookupError) ---
 # try:
 #     nltk.data.find('corpora/stopwords')
 #     nltk.data.find('corpora/wordnet')
-# except LookupError:
+# except LookupError:``
 #     nltk.download('stopwords', quiet=True)
 #     nltk.download('wordnet', quiet=True)
 #     nltk.download('omw-1.4', quiet=True)
@@ -30,17 +32,51 @@ class SentimentLSTM(nn.Module):
 
 class NLPEngine:
     @staticmethod
+    def merge_ents(text: str) -> str:
+        doc = noun_nlp(text)
+    
+        # Map start index -> entity span
+        start2ent = {ent.start: ent for ent in doc.ents}
+    
+        out = []
+        i = 0
+        while i < len(doc):
+            if i in start2ent:
+                ent = start2ent[i]
+                out.append(ent.text.replace(" ", "_"))
+                i = ent.end
+            else:
+                out.append(doc[i].text)
+                i += 1
+    
+        return " ".join(out)
+
+    @staticmethod
     def clean_comments(comment_texts, ids, cursor):
-        """Cleans and saves to cleaned_comments."""
         lem = WordNetLemmatizer()
-        stops = set(stopwords.words('english'))
+        stops = set(stopwords.words("english"))
         processed_data = []
+
         for cid, text in zip(ids, comment_texts):
-            clean = re.sub(r'http\S+|www\S+|<.*?>|[^a-zA-Z\s]', '', str(text).lower())
-            tokens = [lem.lemmatize(w) for w in clean.split() if w not in stops and len(w) > 2]
+            raw = str(text)
+
+            # light cleaning first (keep structure for NER)
+            raw = re.sub(r"http\S+|www\S+|<.*?>", " ", raw)
+            raw = re.sub(r"\s+", " ", raw).strip()
+
+            # merge multi-word entities
+            merged = NLPEngine.merge_ents(raw)
+
+            # now do your stronger cleanup for tokens
+            clean = merged.lower()
+            clean = re.sub(r"[^a-zA-Z_\s]", " ", clean)  # keep underscores
+            clean = re.sub(r"\s+", " ", clean).strip()
+
+            tokens = [lem.lemmatize(w) for w in clean.split()
+                      if w not in stops and len(w) > 2]
+
             processed_data.append((cid, " ".join(tokens), "Pending"))
-        
-        # This calls the variable in etl_schema.py
+
         from schemas.etl_schema import insert_cleaned_comments
         execute_values(cursor, insert_cleaned_comments, processed_data)
         return True

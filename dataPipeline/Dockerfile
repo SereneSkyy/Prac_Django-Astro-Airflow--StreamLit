@@ -22,6 +22,8 @@ m.save_pretrained('/bert_model')"
 # 2. Pre-download NLTK data (Prevents LookupError/Network errors)
 RUN python -m nltk.downloader stopwords wordnet omw-1.4
 
+RUN python -m spacy download en_core_web_sm
+
 # Force Transformers to run in offline mode
 ENV TRANSFORMERS_OFFLINE=1 \
     HF_HUB_OFFLINE=1
