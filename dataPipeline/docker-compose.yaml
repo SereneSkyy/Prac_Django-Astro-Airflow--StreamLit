@@ -10,7 +10,7 @@ x-airflow-common:
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow_pass@host.docker.internal:5432/data_pipeline?options=-csearch_path%3Dairflow # %3D means =
     AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow_pass@host.docker.internal:5432/data_pipeline?options=-csearch_path%3Dairflow
-    AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+    AIRFLOW__CELERY__BROKER_URL: redis://@redis:6379/0
     AIRFLOW__CORE__FERNET_KEY: ''
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
@@ -109,7 +109,7 @@ services:
         - "CMD-SHELL"
         - 'celery --app airflow.providers.celery.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}" || celery --app airflow.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}"'
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 5
       start_period: 30s
     environment:

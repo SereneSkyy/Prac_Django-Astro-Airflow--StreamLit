@@ -27,14 +27,16 @@ def create_embeddings(vid_ids, cursor, topic):
     if NLPEngine.clean_comments(comment_texts, ids, cursor):
         cursor.execute("SELECT comment_id, cleaned_text from airflow.cleaned_comments")
         rows = cursor.fetchall()
-        proc_cmts = {cid: comment.split() for(cid, comment) in rows}
+        proc_cmts = {cid: comment for(cid, comment) in rows}
 
-        target_words = ['protest', 'genz', 'kpoli', 'balenshah', 'corruption', 'singhadurbar', 'gaganthapa', 'youth', 'frustration', 'government', 'nepal', 'political', 'curfew', 'clash', 'rights', 'nepobaby']
+        # Updated Init: Passing 'topic' as it's required for the new global similarity logic
+        taxTree = TaxonomyAndTreeBuilder(threshold=0.30, pro_cmts=proc_cmts, topic=topic) 
 
-        # setting threshold to 0.30 
-        taxTree = TaxonomyAndTreeBuilder(threshold=0.30, pro_cmts=proc_cmts, target_words=target_words) 
-
-        comments_vec, words_occur, word_vectors, word_metadata, imp_score = taxTree.build_tree()
+        # Unpacking new variables: domains and subdomains
+        results = taxTree.build_tree()
+        if not results: return
+        
+        comments_vec, words_occur, word_vectors, word_metadata, imp_score, domains, subdomains = results
 
         # ---------- Requirement: Run LSTM FIRST ----------
         print("[*] Triggering LSTM Sentiment Inference...")
@@ -46,8 +48,10 @@ def create_embeddings(vid_ids, cursor, topic):
         # ---------- Requirement: Create and Save Tree ----------
         cursor.execute(execute_trees_sql)
         cursor.execute(execute_tree_nodes_sql)
-        tree, roots = taxTree.create_tree(word_metadata, word_vectors, imp_score, max_nodes=20)
-        taxTree.save_tree(tree, roots, cursor, topic, imp_score, words_occur)
+        
+        # UTILIZING DOMAINS/SUBDOMAINS: 
+        # We replace create_tree and the old save_tree with the new hierarchy saver
+        taxTree.save_hierarchy(cursor, topic, domains, subdomains, imp_score, words_occur)
 
         # ---------- embed_comments ----------
         comment_embeddings = comments_vec.tolist()

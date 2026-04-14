@@ -13,4 +13,6 @@ gensim
 torch
 transformers
 huggingface_hub 
+sentence-transformers
 spacy
+click==8.1.8
