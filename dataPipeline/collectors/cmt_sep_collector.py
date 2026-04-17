@@ -5,18 +5,33 @@ from schemas.etl_schema import insert_comment_lang
 
 DetectorFactory.seed = 0  # makes results stable
 
+# def detect_language(text):
+#     try:
+#         lang = detect(text)
+#     except:
+#         return 'rne'
+    
+#     if lang == 'ne':
+#         return 'ne'
+#     elif lang == 'en':
+#         return 'en'
+#     else:
+#         return 'rne'
+
 def detect_language(text):
+    # --- MINIMAL FIX: ASCII/English Priority ---
+    # If text is short and contains only English letters/spaces, force 'en'
+    if len(text.split()) <= 3 and re.match(r'^[a-zA-Z0-9\s\.\!\?\-\,]+$', text):
+        return 'en'
+    
     try:
         lang = detect(text)
     except:
         return 'rne'
     
-    if lang == 'ne':
-        return 'ne'
-    elif lang == 'en':
-        return 'en'
-    else:
-        return 'rne'
+    if lang == 'ne': return 'ne'
+    elif lang == 'en': return 'en'
+    else: return 'rne'
 
 def cmt_sep_collector(cursor, cmt: dict):
     # cmt is a dict of {comment_id: comment_text}
